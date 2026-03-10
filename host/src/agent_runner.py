@@ -125,8 +125,11 @@ class AgentRunner:
 
     def _run_one_theme(self, session: SessionMemory) -> str:
         """現在のテーマを turns_per_theme ターン回して要約テキストを返す。"""
+        active = session.active_personas
+        if not active:
+            raise ValueError(f"テーマ '{session.current_theme}' に有効なペルソナがありません")
         for _ in range(session.turns_per_theme):
-            persona = select_persona(session.personas, session)
+            persona = select_persona(active, session)
             agent_input = build_agent_input(session, persona)
             message = self.run_agent(agent_input)
 
@@ -215,10 +218,11 @@ class AgentRunner:
             session = session_manager.get_session(session_id)
             if not session:
                 raise ValueError("Session not found")
-            if not session.personas:
-                raise ValueError("No personas available")
+            active = session.active_personas
+            if not active:
+                raise ValueError("No active personas for current theme")
 
-            persona = select_persona(session.personas, session)
+            persona = select_persona(active, session)
             agent_input = build_agent_input(session, persona)
             message = self.run_agent(agent_input)
 

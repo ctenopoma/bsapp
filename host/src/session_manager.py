@@ -1,31 +1,44 @@
 from typing import Dict, List
 import uuid
 
-from .models import Persona, MessageHistory, SessionStartRequest
+from .models import Persona, MessageHistory, SessionStartRequest, ThemeConfig
 
 
 class SessionMemory:
     def __init__(self, session_id: str, request: SessionStartRequest):
         self.session_id: str = session_id
-        self.themes: List[str] = request.themes
+        self.themes: List[ThemeConfig] = request.themes
         self.current_theme_index: int = 0
         self.personas: List[Persona] = request.personas
         self.history: List[MessageHistory] = request.history
         self.turns_per_theme: int = request.turns_per_theme
         self.turn_count_in_theme: int = 0
         self.summaries: List[dict] = []  # {"theme": str, "summary": str} のリスト
-        # Placeholder for LangChain ConversationSummaryMemory
         self.summary_memory = None
 
     @property
-    def current_theme(self) -> str:
+    def current_theme_config(self) -> ThemeConfig | None:
         if self.current_theme_index < len(self.themes):
             return self.themes[self.current_theme_index]
-        return ""
+        return None
+
+    @property
+    def current_theme(self) -> str:
+        cfg = self.current_theme_config
+        return cfg.theme if cfg else ""
 
     @property
     def all_themes_done(self) -> bool:
         return self.current_theme_index >= len(self.themes)
+
+    @property
+    def active_personas(self) -> List[Persona]:
+        """現在のテーマで有効なペルソナを返す。persona_ids が空の場合は全員。"""
+        cfg = self.current_theme_config
+        if cfg is None or not cfg.persona_ids:
+            return self.personas
+        id_set = set(cfg.persona_ids)
+        return [p for p in self.personas if p.id in id_set]
 
     def advance_theme(self, summary_text: str):
         """現在のテーマの要約を保存して次のテーマへ進む。"""

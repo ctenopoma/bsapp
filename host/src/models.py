@@ -44,8 +44,13 @@ class AgentInput(BaseModel):
 # -------------------------------------------------------------------
 # Session API
 # -------------------------------------------------------------------
+class ThemeConfig(BaseModel):
+    theme: str
+    persona_ids: List[str] = Field(default_factory=list)  # 空=全ペルソナが有効
+
+
 class SessionStartRequest(BaseModel):
-    themes: List[str]
+    themes: List[ThemeConfig]
     personas: List[Persona]
     history: List[MessageHistory] = Field(default_factory=list)
     turns_per_theme: int = 5     # テーマ1つあたりのターン数
