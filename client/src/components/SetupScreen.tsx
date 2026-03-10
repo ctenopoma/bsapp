@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Persona } from '../types/api';
+import { Persona, ThemeConfig } from '../types/api';
 import { getPersonas, createSession } from '../lib/db';
 import { apiStartSession } from '../lib/api';
 import { Settings, Play, Users } from 'lucide-react';
@@ -31,8 +31,8 @@ export default function SetupScreen() {
       setError('Please select at least one persona.');
       return;
     }
-    const themes = themesInput.split('\n').map(s => s.trim()).filter(Boolean);
-    if (themes.length === 0) {
+    const themeStrings = themesInput.split('\n').map(s => s.trim()).filter(Boolean);
+    if (themeStrings.length === 0) {
       setError('Please enter at least one theme.');
       return;
     }
@@ -40,9 +40,10 @@ export default function SetupScreen() {
     try {
       setIsStarting(true);
       setError('');
-      
+
       const selectedPersonas = personas.filter(p => selectedPersonaIds.has(p.id));
-      
+      const themes: ThemeConfig[] = themeStrings.map(t => ({ theme: t, persona_ids: [] }));
+
       // Call host to start session
       const res = await apiStartSession({
         themes,
