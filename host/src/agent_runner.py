@@ -6,7 +6,7 @@ import os
 
 from .session_manager import session_manager, SessionMemory
 from .rag_manager import rag_manager
-from .models import Persona, AgentInput, MessageHistory
+from .models import Persona, AgentInput, MessageHistory, ThemeSummary, FullSessionResult
 
 # Temporary simple dictionary to hold job statuses
 job_statuses: Dict[str, Dict[str, Any]] = {}
@@ -24,6 +24,14 @@ GLOBAL_LLM = ChatOpenAI(
     api_key=llm_api_key
 )
 
+# デフォルトの出力フォーマット指定
+DEFAULT_OUTPUT_FORMAT = (
+    "【発言者】{name}\n"
+    "【主張】(1〜2文で主張を述べる)\n"
+    "【根拠】(根拠や補足を1〜2文で)\n"
+    "300字以内で記述してください。"
+)
+
 
 # -------------------------------------------------------------------
 # ペルソナ選択関数 (差し替え可能)
@@ -37,24 +45,27 @@ def select_persona(personas: List[Persona], session: SessionMemory) -> Persona:
 # -------------------------------------------------------------------
 # AgentInput 組み立て
 # -------------------------------------------------------------------
-def build_agent_input(session: SessionMemory, persona: Persona) -> AgentInput:
+def build_agent_input(
+    session: SessionMemory,
+    persona: Persona,
+    output_format: str = "",
+) -> AgentInput:
     """セッション状態とペルソナからエージェントへの入力を構築する。"""
-    current_theme = session.themes[session.current_theme_index] if session.themes else ""
-
     # RAG取得 (ペルソナのrag_configに基づく)
     rag_context = ""
     if persona.rag_config.enabled and persona.rag_config.tag:
         rag_context = rag_manager.search_context(
             tag=persona.rag_config.tag,
-            query=current_theme,
+            query=session.current_theme,
         )
 
     return AgentInput(
         persona=persona,
         task=persona.task,
-        query=current_theme,
+        query=session.current_theme,
         history=session.history[-5:],  # 直近5件
         rag_context=rag_context,
+        output_format=output_format or DEFAULT_OUTPUT_FORMAT.format(name=persona.name),
     )
 
 
@@ -78,7 +89,10 @@ class AgentRunner:
         )
 
         prompt_template = PromptTemplate(
-            input_variables=["role", "task", "name", "query", "rag_section", "history"],
+            input_variables=[
+                "role", "task", "name", "query",
+                "rag_section", "history", "output_format",
+            ],
             template="""
 あなたは {role} です。
 タスク: {task}
@@ -91,7 +105,8 @@ class AgentRunner:
 直近の会話履歴:
 {history}
 
-上記を踏まえて、{name} として次の発言を行ってください。300字以内で簡潔に述べてください。
+以下のフォーマットで発言してください:
+{output_format}
 """,
         )
 
@@ -102,11 +117,98 @@ class AgentRunner:
             query=agent_input.query,
             rag_section=rag_section,
             history=recent_history,
+            output_format=agent_input.output_format,
         )
 
         response = self.llm.invoke(formatted_prompt)
         return response.content
 
+    def _run_one_theme(self, session: SessionMemory) -> str:
+        """現在のテーマを turns_per_theme ターン回して要約テキストを返す。"""
+        for _ in range(session.turns_per_theme):
+            persona = select_persona(session.personas, session)
+            agent_input = build_agent_input(session, persona)
+            message = self.run_agent(agent_input)
+
+            # 履歴に追記
+            import uuid as _uuid
+            session.history.append(MessageHistory(
+                id=_uuid.uuid4().hex,
+                theme=session.current_theme,
+                agent_name=persona.name,
+                content=message,
+                turn_order=session.turn_count_in_theme,
+            ))
+            session.turn_count_in_theme += 1
+
+        return self._summarize_current_theme(session)
+
+    def _summarize_current_theme(self, session: SessionMemory) -> str:
+        """現在のテーマの履歴をまとめて要約テキストを返す。"""
+        theme_history = [
+            msg for msg in session.history if msg.theme == session.current_theme
+        ]
+        history_text = "\n".join(
+            [f"{msg.agent_name}: {msg.content}" for msg in theme_history]
+        )
+
+        prompt_template = PromptTemplate(
+            input_variables=["theme", "history"],
+            template="""
+テーマ「{theme}」に関するディスカッションを要約してください。
+各ペルソナが主張したポイントを整理してまとめてください。
+
+ディスカッション履歴:
+{history}
+""",
+        )
+
+        response = self.llm.invoke(
+            prompt_template.format(theme=session.current_theme, history=history_text)
+        )
+        return response.content
+
+    # -------------------------------------------------------------------
+    # 全テーマをシーケンシャルに実行するメインエントリ
+    # -------------------------------------------------------------------
+    def run_full_session_background(self, session_id: str, job_id: str):
+        """全テーマを順番に処理し、最終レポートを生成する。"""
+        try:
+            job_statuses[job_id] = {"status": "processing"}
+            session = session_manager.get_session(session_id)
+            if not session:
+                raise ValueError("Session not found")
+            if not session.personas:
+                raise ValueError("No personas available")
+
+            # テーマをひとつずつシーケンシャルに処理
+            while not session.all_themes_done:
+                summary_text = self._run_one_theme(session)
+                session.advance_theme(summary_text)
+
+            # 全要約を結合して最終レポートを生成
+            theme_summaries = [
+                ThemeSummary(theme=s["theme"], summary=s["summary"])
+                for s in session.summaries
+            ]
+            final_report = "\n\n".join(
+                f"## {s.theme}\n{s.summary}" for s in theme_summaries
+            )
+
+            job_statuses[job_id] = {
+                "status": "completed",
+                "result": FullSessionResult(
+                    theme_summaries=theme_summaries,
+                    final_report=final_report,
+                ).model_dump(),
+            }
+
+        except Exception as e:
+            job_statuses[job_id] = {"status": "error", "error_msg": str(e)}
+
+    # -------------------------------------------------------------------
+    # 既存API互換 (ターン単位 / 要約単位)
+    # -------------------------------------------------------------------
     def start_turn_background(self, session_id: str, job_id: str):
         try:
             job_statuses[job_id] = {"status": "processing"}
@@ -116,18 +218,12 @@ class AgentRunner:
             if not session.personas:
                 raise ValueError("No personas available")
 
-            # 1. ペルソナ選択 (切り替え可能な関数)
             persona = select_persona(session.personas, session)
-
-            # 2. AgentInput 組み立て
             agent_input = build_agent_input(session, persona)
-
-            # 3. LLM実行
             message = self.run_agent(agent_input)
 
-            # 4. セッション状態更新
             session.turn_count_in_theme += 1
-            is_theme_end = session.turn_count_in_theme >= 5
+            is_theme_end = session.turn_count_in_theme >= session.turns_per_theme
 
             job_statuses[job_id] = {
                 "status": "completed",
@@ -146,36 +242,12 @@ class AgentRunner:
             if not session:
                 raise ValueError("Session not found")
 
-            current_theme = session.themes[session.current_theme_index] if session.themes else ""
-            all_history = "\n".join(
-                [f"{msg.agent_name}: {msg.content}" for msg in session.history]
-            )
-
-            prompt_template = PromptTemplate(
-                input_variables=["theme", "history"],
-                template="""
-テーマ「{theme}」に関するディスカッションを要約してください。
-各ペルソナが主張したポイントを整理してまとめてください。
-
-ディスカッション履歴:
-{history}
-""",
-            )
-
-            formatted_prompt = prompt_template.format(
-                theme=current_theme,
-                history=all_history,
-            )
-
-            response = self.llm.invoke(formatted_prompt)
-
-            # 次のテーマへ進める
-            session.current_theme_index += 1
-            session.turn_count_in_theme = 0
+            summary_text = self._summarize_current_theme(session)
+            session.advance_theme(summary_text)
 
             job_statuses[job_id] = {
                 "status": "completed",
-                "summary_text": response.content,
+                "summary_text": summary_text,
             }
 
         except Exception as e:

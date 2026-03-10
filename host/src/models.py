@@ -37,7 +37,8 @@ class AgentInput(BaseModel):
     task: str           # persona.task と同値だが、将来的に動的上書きできるよう分離
     query: str          # 今回のターンで考えさせる問い (現状はテーマをそのまま渡す)
     history: List[MessageHistory]
-    rag_context: str = ""  # RAGが有効な場合に事前取得して渡す
+    rag_context: str = ""        # RAGが有効な場合に事前取得して渡す
+    output_format: str = ""      # 出力フォーマット指定 (空の場合はデフォルト挙動)
 
 
 # -------------------------------------------------------------------
@@ -47,6 +48,7 @@ class SessionStartRequest(BaseModel):
     themes: List[str]
     personas: List[Persona]
     history: List[MessageHistory] = Field(default_factory=list)
+    turns_per_theme: int = 5     # テーマ1つあたりのターン数
 
 
 class SessionStartResponse(BaseModel):
@@ -72,6 +74,23 @@ class SummarizeStartResponse(BaseModel):
 class SummarizeStatusResponse(BaseModel):
     status: Literal["processing", "completed", "error"]
     summary_text: Optional[str] = None
+    error_msg: Optional[str] = None
+
+
+# 全テーマ終了後の最終結果
+class ThemeSummary(BaseModel):
+    theme: str
+    summary: str
+
+
+class FullSessionResult(BaseModel):
+    theme_summaries: List[ThemeSummary]
+    final_report: str   # 全要約を結合したもの
+
+
+class FullSessionStatusResponse(BaseModel):
+    status: Literal["processing", "completed", "error"]
+    result: Optional[FullSessionResult] = None
     error_msg: Optional[str] = None
 
 
