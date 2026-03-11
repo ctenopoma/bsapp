@@ -55,6 +55,9 @@ dist-ssr/
 # Tauri / Rust build artifacts
 client/src-tauri/target/
 
+# client/src/lib は lib/ の除外対象から外す
+!client/src/lib/
+
 # Vite / React logs
 npm-debug.log*
 yarn-debug.log*
