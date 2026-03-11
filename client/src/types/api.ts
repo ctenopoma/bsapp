@@ -1,8 +1,14 @@
+export interface RagConfig {
+  enabled: boolean;
+  tag?: string;
+}
+
 export interface Persona {
   id: string;
   name: string;
   role: string;
   task: string;
+  rag_config?: RagConfig;
 }
 
 export interface MessageHistory {
@@ -13,11 +19,17 @@ export interface MessageHistory {
   turn_order: number;
 }
 
+export interface ThemeConfig {
+  theme: string;
+  persona_ids: string[];  // 空=全ペルソナが有効
+}
+
 // Session API Requests
 export interface SessionStartRequest {
-  themes: string[];
+  themes: ThemeConfig[];
   personas: Persona[];
   history: MessageHistory[];
+  turns_per_theme?: number;
 }
 
 export interface SessionStartResponse {
