@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Persona } from '../types/api';
 import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/db';
 import { Plus, Trash2, Edit2, Save, X } from 'lucide-react';
@@ -7,9 +7,17 @@ export default function PersonasScreen() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Persona>>({});
+  const createRoleRef = useRef<HTMLTextAreaElement | null>(null);
+  const editRoleRef = useRef<HTMLTextAreaElement | null>(null);
   
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '', pre_info: '' });
+
+  const resizeTextarea = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${element.scrollHeight}px`;
+  };
 
   const loadPersonas = async () => {
     try {
@@ -23,6 +31,11 @@ export default function PersonasScreen() {
   useEffect(() => {
     loadPersonas();
   }, []);
+
+  useEffect(() => {
+    resizeTextarea(createRoleRef.current);
+    resizeTextarea(editRoleRef.current);
+  }, [createForm.role, editForm.role, isCreating, editingId]);
 
   const handleCreate = async () => {
     if (!createForm.name || !createForm.role) return;
@@ -75,11 +88,16 @@ export default function PersonasScreen() {
               onChange={e => setCreateForm({...createForm, name: e.target.value})}
               className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
             />
-            <input
+            <textarea
+              ref={createRoleRef}
               placeholder="Role (e.g., Senior Software Engineer focused on code quality)"
               value={createForm.role}
-              onChange={e => setCreateForm({...createForm, role: e.target.value})}
-              className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              onChange={e => {
+                setCreateForm({...createForm, role: e.target.value});
+                resizeTextarea(e.target);
+              }}
+              rows={4}
+              className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all resize-none overflow-hidden"
             />
             <textarea
               placeholder="事前情報（このペルソナのみに与える背景情報・知識・資料）"
@@ -106,10 +124,15 @@ export default function PersonasScreen() {
                   onChange={e => setEditForm({...editForm, name: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg p-2"
                 />
-                <input
+                <textarea
+                  ref={editRoleRef}
                   value={editForm.role}
-                  onChange={e => setEditForm({...editForm, role: e.target.value})}
-                  className="w-full border border-gray-300 rounded-lg p-2"
+                  onChange={e => {
+                    setEditForm({...editForm, role: e.target.value});
+                    resizeTextarea(e.target);
+                  }}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded-lg p-2 resize-none overflow-hidden"
                 />
                 <textarea
                   value={editForm.pre_info ?? ''}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal } from "lucide-react";
+import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical } from "lucide-react";
 import { initDb, getSessions, SessionData, deleteSession } from "./lib/db";
 
 import PersonasScreen from './components/PersonasScreen';
@@ -9,6 +9,7 @@ import RagScreen from './components/RagScreen';
 import SetupScreen from './components/SetupScreen';
 import DiscussionScreen from './components/DiscussionScreen';
 import SettingsScreen from './components/SettingsScreen';
+import PatentResearchScreen from './components/PatentResearchScreen';
 
 function App() {
   const [dbReady, setDbReady] = useState(false);
@@ -75,6 +76,7 @@ function App() {
     { path: "/personas", label: "Personas", icon: <Users size={20} /> },
     { path: "/tasks", label: "Tasks", icon: <MessageSquare size={20} /> },
     { path: "/rag", label: "Data Base", icon: <Database size={20} /> },
+    { path: "/patent", label: "Patent Research", icon: <FlaskConical size={20} /> },
     { path: "/settings", label: "Settings", icon: <SlidersHorizontal size={20} /> },
   ];
 
@@ -148,6 +150,7 @@ function App() {
           <Route path="/personas" element={<PersonasScreen />} />
           <Route path="/tasks" element={<TasksScreen />} />
           <Route path="/rag" element={<RagScreen />} />
+          <Route path="/patent" element={<PatentResearchScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />
         </Routes>
       </main>

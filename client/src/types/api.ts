@@ -84,6 +84,12 @@ export interface AppSettings {
   default_output_format: string;
   agent_prompt_template: string;
   summary_prompt_template: string;
+  max_history_tokens: number;
+  recent_history_count: number;
+  // 特許調査設定
+  patent_company_column: string;
+  patent_content_column: string;
+  patent_date_column: string;
 }
 
 export interface HealthResponse {
@@ -114,4 +120,31 @@ export interface RagAddResponse {
 export interface RagStatusResponse {
   status: 'processing' | 'completed' | 'error';
   error_msg?: string;
+}
+
+// 特許調査 API
+export interface PatentItem {
+  content: string;
+  date?: string;
+}
+
+export interface PatentAnalyzeRequest {
+  company: string;
+  patents: PatentItem[];
+  system_prompt: string;
+  output_format: string;
+}
+
+export interface PatentAnalyzeResponse {
+  company: string;
+  report: string;
+}
+
+export interface PatentSummaryRequest {
+  company_reports: PatentAnalyzeResponse[];
+  system_prompt: string;
+}
+
+export interface PatentSummaryResponse {
+  summary: string;
 }

@@ -20,7 +20,7 @@ def _setup_no_proxy() -> None:
 
 _setup_no_proxy()
 
-from src.api import session, rag, settings
+from src.api import session, rag, settings, patent
 
 app = FastAPI(title="BSapp Backend", version="0.1.0")
 
@@ -42,6 +42,7 @@ app.add_middleware(
 app.include_router(session.router, prefix="/api/session", tags=["Session"])
 app.include_router(rag.router, prefix="/api/rag", tags=["RAG"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(patent.router, prefix="/api/patent", tags=["Patent"])
 
 @app.get("/")
 def read_root():

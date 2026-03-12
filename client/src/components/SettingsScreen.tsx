@@ -122,6 +122,24 @@ export default function SettingsScreen() {
         </Field>
       </section>
 
+      {/* 特許調査設定 */}
+      <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
+        <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">特許調査 CSV列名設定</h2>
+        <p className="text-xs text-gray-500">Patent Research画面で使用するCSVの列名を設定します。</p>
+        <Field label="企業名列" hint="（出願人など）">
+          <input className={INPUT_CLS} type="text" value={form.patent_company_column ?? ''}
+            onChange={e => set('patent_company_column', e.target.value)} />
+        </Field>
+        <Field label="特許内容列" hint="（発明の名称など）">
+          <input className={INPUT_CLS} type="text" value={form.patent_content_column ?? ''}
+            onChange={e => set('patent_content_column', e.target.value)} />
+        </Field>
+        <Field label="日付列" hint="（出願日など / 最新10件の抽出に使用）">
+          <input className={INPUT_CLS} type="text" value={form.patent_date_column ?? ''}
+            onChange={e => set('patent_date_column', e.target.value)} />
+        </Field>
+      </section>
+
       {/* プロンプトテンプレート */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
         <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">プロンプトテンプレート</h2>

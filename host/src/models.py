@@ -124,8 +124,41 @@ class AppSettings(BaseModel):
     default_output_format: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
     agent_prompt_template: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
     summary_prompt_template: str = "" # 空=prompt_builder.pyのデフォルト値を使用
-    max_history_tokens: int = 50000    # 会話履歴の最大トークン数 (0=無制限)
+    max_history_tokens: int = 50000   # 会話履歴の最大トークン数 (0=無制限)
     recent_history_count: int = 5     # 圧縮しない直近の会話数
+    # 特許調査設定
+    patent_company_column: str = "出願人"   # CSV内の企業名列名
+    patent_content_column: str = "請求項"  # CSV内の特許内容列名
+    patent_date_column: str = "出願日"         # CSV内の日付列名 (最新N件ソート用)
+
+
+# -------------------------------------------------------------------
+# 特許調査 API
+# -------------------------------------------------------------------
+class PatentItem(BaseModel):
+    content: str   # 特許タイトル・概要など
+    date: str = "" # 日付文字列 (クライアント側でソート済み)
+
+
+class PatentAnalyzeRequest(BaseModel):
+    company: str
+    patents: List[PatentItem]   # クライアントが最新10件に絞り込み済み
+    system_prompt: str
+    output_format: str
+
+
+class PatentAnalyzeResponse(BaseModel):
+    company: str
+    report: str
+
+
+class PatentSummaryRequest(BaseModel):
+    company_reports: List[PatentAnalyzeResponse]  # 全企業のレポート
+    system_prompt: str
+
+
+class PatentSummaryResponse(BaseModel):
+    summary: str
 
 
 class HealthResponse(BaseModel):

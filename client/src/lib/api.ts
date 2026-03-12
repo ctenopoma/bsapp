@@ -13,6 +13,10 @@ import {
   RagAddRequest,
   RagAddResponse,
   RagStatusResponse,
+  PatentAnalyzeRequest,
+  PatentAnalyzeResponse,
+  PatentSummaryRequest,
+  PatentSummaryResponse,
 } from '../types/api';
 import { fetch } from '@tauri-apps/plugin-http';
 
@@ -93,3 +97,12 @@ export function apiRagStatus(jobId: string): Promise<RagStatusResponse> {
   return request(`/api/rag/status/${jobId}`);
 }
 export const apiGetRagStatus = apiRagStatus;
+
+// 特許調査 API
+export function apiPatentAnalyze(req: PatentAnalyzeRequest): Promise<PatentAnalyzeResponse> {
+  return request('/api/patent/analyze', { method: 'POST', body: JSON.stringify(req) });
+}
+
+export function apiPatentSummary(req: PatentSummaryRequest): Promise<PatentSummaryResponse> {
+  return request('/api/patent/summary', { method: 'POST', body: JSON.stringify(req) });
+}

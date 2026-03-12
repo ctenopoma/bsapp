@@ -72,6 +72,34 @@ async function getDb(): Promise<Database> {
       value TEXT NOT NULL DEFAULT ''
     )
   `);
+
+  // 特許調査テーブル
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS patent_sessions (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS patent_reports (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      company TEXT NOT NULL,
+      report TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (session_id) REFERENCES patent_sessions(id) ON DELETE CASCADE
+    )
+  `);
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS patent_summaries (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL UNIQUE,
+      summary TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES patent_sessions(id) ON DELETE CASCADE
+    )
+  `);
+
   return _db;
 }
 
@@ -212,4 +240,85 @@ export async function addMessage(
     'INSERT INTO messages (id, session_id, theme, agent_name, content, turn_order) VALUES ($1, $2, $3, $4, $5, $6)',
     [crypto.randomUUID(), sessionId, theme, agentName, content, turnOrder]
   );
+}
+
+// -------------------------------------------------------------------
+// 特許調査 CRUD
+// -------------------------------------------------------------------
+export interface PatentSessionData {
+  id: string;
+  title: string;
+  created_at: string;
+}
+
+export interface PatentReportData {
+  id: string;
+  session_id: string;
+  company: string;
+  report: string;
+  sort_order: number;
+}
+
+export interface PatentSummaryData {
+  id: string;
+  session_id: string;
+  summary: string;
+}
+
+export async function createPatentSession(id: string, title: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT INTO patent_sessions (id, title) VALUES ($1, $2)',
+    [id, title]
+  );
+}
+
+export async function getPatentSessions(): Promise<PatentSessionData[]> {
+  const db = await getDb();
+  return db.select<PatentSessionData[]>(
+    'SELECT id, title, created_at FROM patent_sessions ORDER BY created_at DESC'
+  );
+}
+
+export async function deletePatentSession(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM patent_sessions WHERE id=$1', [id]);
+}
+
+export async function addPatentReport(
+  sessionId: string,
+  company: string,
+  report: string,
+  sortOrder: number
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT INTO patent_reports (id, session_id, company, report, sort_order) VALUES ($1, $2, $3, $4, $5)',
+    [crypto.randomUUID(), sessionId, company, report, sortOrder]
+  );
+}
+
+export async function getPatentReports(sessionId: string): Promise<PatentReportData[]> {
+  const db = await getDb();
+  return db.select<PatentReportData[]>(
+    'SELECT id, session_id, company, report, sort_order FROM patent_reports WHERE session_id=$1 ORDER BY sort_order',
+    [sessionId]
+  );
+}
+
+export async function savePatentSummary(sessionId: string, summary: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT INTO patent_summaries (id, session_id, summary) VALUES ($1, $2, $3) ON CONFLICT(session_id) DO UPDATE SET summary=$3',
+    [crypto.randomUUID(), sessionId, summary]
+  );
+}
+
+export async function getPatentSummary(sessionId: string): Promise<string> {
+  const db = await getDb();
+  const rows = await db.select<{ summary: string }[]>(
+    'SELECT summary FROM patent_summaries WHERE session_id=$1',
+    [sessionId]
+  );
+  return rows[0]?.summary ?? '';
 }
