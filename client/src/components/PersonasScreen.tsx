@@ -9,7 +9,7 @@ export default function PersonasScreen() {
   const [editForm, setEditForm] = useState<Partial<Persona>>({});
   
   const [isCreating, setIsCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '' });
+  const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '', pre_info: '' });
 
   const loadPersonas = async () => {
     try {
@@ -29,11 +29,12 @@ export default function PersonasScreen() {
     const newPersona: Persona = {
       id: crypto.randomUUID(),
       name: createForm.name,
-      role: createForm.role
+      role: createForm.role,
+      pre_info: createForm.pre_info ?? '',
     };
     await addPersona(newPersona);
     setIsCreating(false);
-    setCreateForm({ name: '', role: '' });
+    setCreateForm({ name: '', role: '', pre_info: '' });
     loadPersonas();
   };
 
@@ -74,11 +75,18 @@ export default function PersonasScreen() {
               onChange={e => setCreateForm({...createForm, name: e.target.value})}
               className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
             />
-            <input 
+            <input
               placeholder="Role (e.g., Senior Software Engineer focused on code quality)"
               value={createForm.role}
               onChange={e => setCreateForm({...createForm, role: e.target.value})}
               className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+            />
+            <textarea
+              placeholder="事前情報（このペルソナのみに与える背景情報・知識・資料）"
+              value={createForm.pre_info}
+              onChange={e => setCreateForm({...createForm, pre_info: e.target.value})}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all resize-y font-mono text-sm"
             />
             <div className="flex gap-3 justify-end mt-2">
               <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancel</button>
@@ -98,10 +106,17 @@ export default function PersonasScreen() {
                   onChange={e => setEditForm({...editForm, name: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg p-2"
                 />
-                <input 
+                <input
                   value={editForm.role}
                   onChange={e => setEditForm({...editForm, role: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg p-2"
+                />
+                <textarea
+                  value={editForm.pre_info ?? ''}
+                  onChange={e => setEditForm({...editForm, pre_info: e.target.value})}
+                  placeholder="事前情報（このペルソナのみに与える背景情報・知識・資料）"
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-lg p-2 resize-y font-mono text-sm"
                 />
                 <div className="flex justify-end gap-2 mt-2">
                   <button onClick={() => setEditingId(null)} className="flex items-center gap-1 text-gray-600 hover:bg-gray-100 px-3 py-1 rounded-md"><X size={16}/> Cancel</button>
@@ -111,11 +126,14 @@ export default function PersonasScreen() {
             ) : (
               <>
                 <div className="flex justify-between items-start">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-xl font-bold text-gray-900">{p.name}</h3>
                     <p className="text-sm font-medium text-blue-600 mt-1">{p.role}</p>
+                    {p.pre_info && (
+                      <p className="text-xs text-gray-500 mt-2 font-mono whitespace-pre-wrap bg-gray-50 rounded-lg p-2 border border-gray-100">{p.pre_info}</p>
+                    )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 ml-4 shrink-0">
                     <button onClick={() => { setEditingId(p.id); setEditForm(p); }} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={18}/></button>
                     <button onClick={() => handleDelete(p.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18}/></button>
                   </div>

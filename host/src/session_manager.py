@@ -13,9 +13,11 @@ class SessionMemory:
         self.tasks: List[any] = request.tasks # will be converted by pydantic automatically
         self.history: List[MessageHistory] = request.history
         self.turns_per_theme: int = request.turns_per_theme
+        self.common_theme: str = request.common_theme
+        self.pre_info: str = request.pre_info
         self.turn_count_in_theme: int = 0
         self.summaries: List[dict] = []  # {"theme": str, "summary": str} のリスト
-        self.summary_memory = None
+        self.summary_memory = "" # 過去のテーマの要約情報
 
     @property
     def current_theme_config(self) -> ThemeConfig | None:

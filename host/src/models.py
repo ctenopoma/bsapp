@@ -17,6 +17,7 @@ class Persona(BaseModel):
     id: str
     name: str
     role: str
+    pre_info: str = ""           # ペルソナ固有の事前情報
     rag_config: Optional[RagConfig] = Field(default_factory=RagConfig)
 
 class TaskModel(BaseModel):
@@ -41,6 +42,8 @@ class AgentInput(BaseModel):
     query: str          # 今回のターンで考えさせる問い (現状はテーマをそのまま渡す)
     history: List[MessageHistory]
     rag_context: str = ""        # RAGが有効な場合に事前取得して渡す
+    pre_info: str = ""           # セッション共通の事前情報
+    previous_summaries: str = ""   # これまでの要約を結合したもの
     output_format: str = ""      # 出力フォーマット指定 (空の場合はデフォルト挙動)
 
 
@@ -50,6 +53,7 @@ class AgentInput(BaseModel):
 class ThemeConfig(BaseModel):
     theme: str
     persona_ids: List[str] = Field(default_factory=list)  # 空=全ペルソナが有効
+    output_format: str = ""  # 空=デフォルトフォーマットを使用
 
 
 class SessionStartRequest(BaseModel):
@@ -58,6 +62,8 @@ class SessionStartRequest(BaseModel):
     tasks: List[TaskModel]
     history: List[MessageHistory] = Field(default_factory=list)
     turns_per_theme: int = 5     # テーマ1つあたりのターン数
+    common_theme: str = ""       # 全テーマ共通の上位テーマ
+    pre_info: str = ""           # 事前情報 (ファイル内容等)
 
 
 class SessionStartResponse(BaseModel):
@@ -72,7 +78,9 @@ class TurnStatusResponse(BaseModel):
     status: Literal["processing", "completed", "error"]
     agent_name: Optional[str] = None
     message: Optional[str] = None
+    theme: Optional[str] = None
     is_theme_end: Optional[bool] = None
+    all_themes_done: Optional[bool] = None
     error_msg: Optional[str] = None
 
 
@@ -83,6 +91,7 @@ class SummarizeStartResponse(BaseModel):
 class SummarizeStatusResponse(BaseModel):
     status: Literal["processing", "completed", "error"]
     summary_text: Optional[str] = None
+    all_themes_done: Optional[bool] = None
     error_msg: Optional[str] = None
 
 
@@ -105,6 +114,22 @@ class FullSessionStatusResponse(BaseModel):
 
 class SessionEndResponse(BaseModel):
     status: Literal["success"]
+
+
+# -------------------------------------------------------------------
+# アプリ設定 (公開API経由で取得・変更できる設定のみ。LLM接続情報は含まない)
+# -------------------------------------------------------------------
+class AppSettings(BaseModel):
+    turns_per_theme: int = 5
+    default_output_format: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
+    agent_prompt_template: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
+    summary_prompt_template: str = "" # 空=prompt_builder.pyのデフォルト値を使用
+
+
+class HealthResponse(BaseModel):
+    server: Literal["ok"] = "ok"
+    llm: Literal["ok", "error"]
+    llm_error: Optional[str] = None
 
 
 # -------------------------------------------------------------------

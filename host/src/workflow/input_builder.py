@@ -17,7 +17,7 @@ import random
 from ..models import Persona, AgentInput
 from ..session_manager import SessionMemory
 from ..rag_manager import rag_manager
-from .prompt_builder import DEFAULT_OUTPUT_FORMAT
+from ..app_settings import get_settings
 
 
 def build_agent_input(
@@ -62,11 +62,26 @@ def build_agent_input(
     # ------------------------------------------------------------------
     # AgentInput 組み立て
     # ------------------------------------------------------------------
+    query = (
+        f"{session.common_theme}\n\n{session.current_theme}"
+        if session.common_theme
+        else session.current_theme
+    )
+
+    # セッション共通の事前情報とペルソナ固有の事前情報を結合
+    pre_info = "\n\n".join(filter(None, [session.pre_info, persona.pre_info]))
+
     return AgentInput(
         persona=persona,
         task=task_description,
-        query=session.current_theme,
+        query=query,
         history=session.history[-5:],   # ← 渡す履歴件数をここで調整
         rag_context=rag_context,
-        output_format=output_format or DEFAULT_OUTPUT_FORMAT.format(name=persona.name),
+        pre_info=pre_info,
+        previous_summaries=session.summary_memory,
+        output_format=(
+            output_format
+            or (session.current_theme_config.output_format if session.current_theme_config else "")
+            or get_settings().default_output_format.format(name=persona.name)
+        ),
     )

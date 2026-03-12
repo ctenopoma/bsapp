@@ -6,6 +6,8 @@ import {
   SummarizeStartResponse,
   SummarizeStatusResponse,
   SessionEndResponse,
+  AppSettings,
+  HealthResponse,
   RagInitRequest,
   RagInitResponse,
   RagAddRequest,
@@ -63,6 +65,18 @@ export function apiGetSummarizeStatus(sessionId: string, jobId: string): Promise
 
 export function apiEndSession(sessionId: string): Promise<SessionEndResponse> {
   return request(`/api/session/${sessionId}/end`, { method: 'POST' });
+}
+
+export function apiGetSettings(): Promise<AppSettings> {
+  return request('/api/settings/');
+}
+
+export function apiSaveSettings(s: AppSettings): Promise<AppSettings> {
+  return request('/api/settings/', { method: 'PUT', body: JSON.stringify(s) });
+}
+
+export function apiGetHealth(): Promise<HealthResponse> {
+  return request('/api/settings/health');
 }
 
 export function apiRagInit(req: RagInitRequest): Promise<RagInitResponse> {

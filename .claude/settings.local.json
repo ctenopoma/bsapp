@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python debug_test.py)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

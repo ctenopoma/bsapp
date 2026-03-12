@@ -14,7 +14,7 @@ summarizer.py
 from langchain_core.prompts import PromptTemplate
 
 from ..session_manager import SessionMemory
-from .prompt_builder import SUMMARY_PROMPT_TEMPLATE
+from ..app_settings import get_settings
 
 
 def summarize_theme(session: SessionMemory, llm) -> str:
@@ -46,10 +46,10 @@ def summarize_theme(session: SessionMemory, llm) -> str:
     # プロンプト組み立て & LLM呼び出し
     # ------------------------------------------------------------------
     prompt_template = PromptTemplate(
-        input_variables=["theme", "history"],
-        template=SUMMARY_PROMPT_TEMPLATE,
+        input_variables=["theme", "history", "output_format"],
+        template=get_settings().summary_prompt_template,
     )
     response = llm.invoke(
-        prompt_template.format(theme=session.current_theme, history=history_text)
+        prompt_template.format(theme=session.current_theme, history=history_text, output_format=session.current_theme_config.output_format) # type: ignore
     )
     return response.content

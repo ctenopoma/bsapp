@@ -15,9 +15,16 @@ async function getDb(): Promise<Database> {
     CREATE TABLE IF NOT EXISTS personas (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      role TEXT NOT NULL
+      role TEXT NOT NULL,
+      pre_info TEXT NOT NULL DEFAULT ''
     )
   `);
+  // マイグレーション: pre_info カラムが存在しない場合は追加
+  try {
+    await _db.execute(`ALTER TABLE personas ADD COLUMN pre_info TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // カラムが既に存在する場合は無視
+  }
   
   await _db.execute(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -49,30 +56,59 @@ async function getDb(): Promise<Database> {
       id TEXT PRIMARY KEY,
       text TEXT NOT NULL,
       persona_ids TEXT NOT NULL DEFAULT '',
+      output_format TEXT NOT NULL DEFAULT '',
       sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  // マイグレーション: output_format カラムが存在しない場合は追加
+  try {
+    await _db.execute(`ALTER TABLE theme_entries ADD COLUMN output_format TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // カラムが既に存在する場合は無視
+  }
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS session_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
     )
   `);
   return _db;
 }
 
+export async function getSessionConfig(key: string): Promise<string> {
+  const db = await getDb();
+  const rows = await db.select<{ value: string }[]>(
+    'SELECT value FROM session_config WHERE key = $1', [key]
+  );
+  return rows[0]?.value ?? '';
+}
+
+export async function saveSessionConfig(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT INTO session_config (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2',
+    [key, value]
+  );
+}
+
 export async function getPersonas(): Promise<Persona[]> {
   const db = await getDb();
-  return db.select<Persona[]>('SELECT id, name, role FROM personas ORDER BY rowid');
+  return db.select<Persona[]>('SELECT id, name, role, pre_info FROM personas ORDER BY rowid');
 }
 
 export async function addPersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'INSERT INTO personas (id, name, role) VALUES ($1, $2, $3)',
-    [p.id, p.name, p.role]
+    'INSERT INTO personas (id, name, role, pre_info) VALUES ($1, $2, $3, $4)',
+    [p.id, p.name, p.role, p.pre_info ?? '']
   );
 }
 
 export async function updatePersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'UPDATE personas SET name=$1, role=$2 WHERE id=$3',
-    [p.name, p.role, p.id]
+    'UPDATE personas SET name=$1, role=$2, pre_info=$3 WHERE id=$4',
+    [p.name, p.role, p.pre_info ?? '', p.id]
   );
 }
 
@@ -111,12 +147,13 @@ export interface ThemeEntry {
   id: string;
   text: string;
   persona_ids: string; // comma-separated persona IDs
+  output_format: string;
   sort_order: number;
 }
 
 export async function getThemeEntries(): Promise<ThemeEntry[]> {
   const db = await getDb();
-  return db.select<ThemeEntry[]>('SELECT id, text, persona_ids, sort_order FROM theme_entries ORDER BY sort_order');
+  return db.select<ThemeEntry[]>('SELECT id, text, persona_ids, output_format, sort_order FROM theme_entries ORDER BY sort_order');
 }
 
 export async function saveThemeEntries(entries: ThemeEntry[]): Promise<void> {
@@ -125,8 +162,8 @@ export async function saveThemeEntries(entries: ThemeEntry[]): Promise<void> {
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     await db.execute(
-      'INSERT INTO theme_entries (id, text, persona_ids, sort_order) VALUES ($1, $2, $3, $4)',
-      [e.id, e.text, e.persona_ids, i]
+      'INSERT INTO theme_entries (id, text, persona_ids, output_format, sort_order) VALUES ($1, $2, $3, $4, $5)',
+      [e.id, e.text, e.persona_ids, e.output_format, i]
     );
   }
 }

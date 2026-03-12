@@ -1,26 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig } from '../types/api';
-import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries } from '../lib/db';
-import { apiStartSession } from '../lib/api';
+import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig } from '../lib/db';
+import { apiStartSession, apiGetSettings } from '../lib/api';
 import { Settings, Play, Plus, Trash2 } from 'lucide-react';
 
 interface ThemeEntry {
   localId: string;
   text: string;
   personaIds: Set<string>; // 空 = 全ペルソナ参加
+  outputFormat: string;
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set() };
+  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '' };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string }): ThemeEntry {
   return {
     localId: e.id,
     text: e.text,
     personaIds: e.persona_ids ? new Set(e.persona_ids.split(',').filter(Boolean)) : new Set(),
+    outputFormat: e.output_format ?? '',
   };
 }
 
@@ -29,6 +31,7 @@ function uiToDb(e: ThemeEntry, i: number) {
     id: e.localId,
     text: e.text,
     persona_ids: [...e.personaIds].join(','),
+    output_format: e.outputFormat,
     sort_order: i,
   };
 }
@@ -39,6 +42,9 @@ export default function SetupScreen() {
   const [allTasks, setAllTasks] = useState<TaskModel[]>([]);
   const [themeEntries, setThemeEntries] = useState<ThemeEntry[]>([newEntry()]);
   const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
+  const [commonTheme, setCommonTheme] = useState('');
+  const [preInfo, setPreInfo] = useState('');
+  const [turnsPerTheme, setTurnsPerTheme] = useState(5);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
 
@@ -54,6 +60,9 @@ export default function SetupScreen() {
         setThemeEntries(rows.map(dbToUi));
       }
     }).catch(console.error);
+    getSessionConfig('common_theme').then(setCommonTheme).catch(console.error);
+    getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
+    apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
   }, []);
 
   const addTheme = () => setThemeEntries(prev => {
@@ -72,6 +81,13 @@ export default function SetupScreen() {
   const updateText = (localId: string, text: string) =>
     setThemeEntries(prev => {
       const next = prev.map(e => e.localId === localId ? { ...e, text } : e);
+      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+      return next;
+    });
+
+  const updateOutputFormat = (localId: string, outputFormat: string) =>
+    setThemeEntries(prev => {
+      const next = prev.map(e => e.localId === localId ? { ...e, outputFormat } : e);
       saveThemeEntries(next.map(uiToDb)).catch(console.error);
       return next;
     });
@@ -125,12 +141,13 @@ export default function SetupScreen() {
     const themes: ThemeConfig[] = valid.map(e => ({
       theme: e.text.trim(),
       persona_ids: [...e.personaIds],
+      output_format: e.outputFormat,
     }));
 
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [] });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme });
       const sessionId = res.session_id;
       const title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
       await createSession(sessionId, title);
@@ -149,6 +166,41 @@ export default function SetupScreen() {
           Setup Discussion
         </h1>
         <p className="text-gray-600 mt-2">テーマごとに参加するペルソナを設定し、割り当てるタスクを選んでください。</p>
+      </div>
+
+      {/* 共通テーマ & 事前情報 */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6 flex flex-col gap-4">
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">共通テーマ <span className="text-gray-400 font-normal text-xs">（全テーマに共通する上位テーマ）</span></label>
+          <input
+            type="text"
+            value={commonTheme}
+            onChange={e => { setCommonTheme(e.target.value); saveSessionConfig('common_theme', e.target.value).catch(console.error); }}
+            placeholder="例: 2030年の社会課題"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">事前情報 <span className="text-gray-400 font-normal text-xs">（全エージェントに共有する背景情報）</span></label>
+          <textarea
+            value={preInfo}
+            onChange={e => { setPreInfo(e.target.value); saveSessionConfig('pre_info', e.target.value).catch(console.error); }}
+            placeholder="議論の前提となる情報を入力（ファイル内容の貼り付けなど）"
+            rows={4}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">ターン数 <span className="text-gray-400 font-normal text-xs">（1テーマあたり / デフォルトはSettings画面で変更）</span></label>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={turnsPerTheme}
+            onChange={e => setTurnsPerTheme(parseInt(e.target.value) || 1)}
+            className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -173,6 +225,21 @@ export default function SetupScreen() {
               >
                 <Trash2 size={15} />
               </button>
+            </div>
+
+            {/* 出力フォーマット */}
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                Format
+              </span>
+              <textarea
+                value={entry.outputFormat}
+                onChange={e => updateOutputFormat(entry.localId, e.target.value)}
+                placeholder="出力フォーマットを指定（空=デフォルト）"
+                rows={2}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+              />
+              <div className="w-[22px] shrink-0" />
             </div>
 
             {/* ペルソナ選択チップ */}

@@ -7,6 +7,7 @@ export interface Persona {
   id: string;
   name: string;
   role: string;
+  pre_info?: string;
   rag_config?: RagConfig;
 }
 
@@ -26,6 +27,7 @@ export interface MessageHistory {
 export interface ThemeConfig {
   theme: string;
   persona_ids: string[];  // 空=全ペルソナが有効
+  output_format?: string; // 空=デフォルトフォーマットを使用
 }
 
 // Session API Requests
@@ -35,6 +37,8 @@ export interface SessionStartRequest {
   tasks: TaskModel[];
   history: MessageHistory[];
   turns_per_theme?: number;
+  common_theme?: string;
+  pre_info?: string;
 }
 
 export interface SessionStartResponse {
@@ -57,18 +61,35 @@ export interface TurnStatusResponse {
   status: 'processing' | 'completed' | 'error';
   agent_name?: string;
   message?: string;
+  theme?: string;
   is_theme_end?: boolean;
+  all_themes_done?: boolean;
   error_msg?: string;
 }
 
 export interface SummarizeStatusResponse {
   status: 'processing' | 'completed' | 'error';
   summary_text?: string;
+  all_themes_done?: boolean;
   error_msg?: string;
 }
 
 export interface SessionEndResponse {
   status: 'success';
+}
+
+// App Settings (LLM接続情報はサーバー側のみで管理・非公開)
+export interface AppSettings {
+  turns_per_theme: number;
+  default_output_format: string;
+  agent_prompt_template: string;
+  summary_prompt_template: string;
+}
+
+export interface HealthResponse {
+  server: 'ok';
+  llm: 'ok' | 'error';
+  llm_error?: string;
 }
 
 // RAG API Requests

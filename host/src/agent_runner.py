@@ -5,41 +5,35 @@ from typing import Dict, Any
 
 from .session_manager import session_manager, SessionMemory
 from .models import MessageHistory, ThemeSummary, FullSessionResult
+from .app_settings import get_settings, get_llm_config
+import uuid as _uuid
 from .workflow import (
     select_persona,
     build_agent_input,
     run_one_theme,
     summarize_theme,
-    AGENT_PROMPT_TEMPLATE,
 )
 
 # Temporary simple dictionary to hold job statuses
 job_statuses: Dict[str, Dict[str, Any]] = {}
 
-llm_ip = os.environ.get("LLM_IP", "127.0.0.1")
-llm_port = os.environ.get("LLM_PORT", "11434")
-llm_base_url = f"http://{llm_ip}:{llm_port}/v1"
-llm_model = os.environ.get("LLM_MODEL", "llama3")
-llm_api_key = os.environ.get("LLM_API_KEY", "dummy")
 
 def create_llm() -> ChatOpenAI:
+    c = get_llm_config()
     return ChatOpenAI(
-        temperature=0.7,
-        model=llm_model,
-        base_url=llm_base_url,
-        api_key=llm_api_key
+        temperature=c.llm_temperature,
+        model=c.llm_model,
+        base_url=f"http://{c.llm_ip}:{c.llm_port}/v1",
+        api_key=c.llm_api_key,
     )
 
 
 class AgentRunner:
-    def __init__(self):
-        self.llm = GLOBAL_LLM
-
     def run_agent(self, agent_input) -> str:
         """AgentInputを受け取りLLMに投げてレスポンスを返す。
 
-        プロンプトを変更する場合は workflow/prompt_builder.py の
-        AGENT_PROMPT_TEMPLATE を編集してください。
+        プロンプトは app_settings.get_settings().agent_prompt_template を使用。
+        設定画面から変更可能。
         """
         recent_history = "\n".join(
             [f"{msg.agent_name}: {msg.content}" for msg in agent_input.history]
@@ -51,12 +45,18 @@ class AgentRunner:
             else "参考情報 (RAG): なし"
         )
 
+        pre_info_section = (
+            f"事前情報:\n{agent_input.pre_info}"
+            if agent_input.pre_info
+            else "事前情報: なし"
+        )
+
         prompt_template = PromptTemplate(
             input_variables=[
                 "role", "task", "name", "query",
-                "rag_section", "history", "output_format",
+                "pre_info_section", "rag_section", "history", "previous_summaries", "output_format",
             ],
-            template=AGENT_PROMPT_TEMPLATE,
+            template=get_settings().agent_prompt_template,
         )
 
         formatted_prompt = prompt_template.format(
@@ -64,25 +64,31 @@ class AgentRunner:
             task=agent_input.task,
             name=agent_input.persona.name,
             query=agent_input.query,
+            pre_info_section=pre_info_section,
             rag_section=rag_section,
             history=recent_history,
+            previous_summaries=agent_input.previous_summaries,
             output_format=agent_input.output_format,
         )
 
         response = self._invoke_llm(formatted_prompt)
         return response.content
 
+    def _invoke_llm(self, prompt: str):
+        """常に最新の設定でLLMを生成して呼び出す。"""
+        return create_llm().invoke(prompt)
+
     def _run_one_theme(self, session: SessionMemory) -> str:
         """現在のテーマを実行して要約を返す。workflow/turn_runner.py に委譲。"""
         return run_one_theme(
             session=session,
             agent_executor=self.run_agent,
-            summarizer=lambda s: summarize_theme(s, self.llm),
+            summarizer=lambda s: summarize_theme(s, create_llm()),
         )
 
     def _summarize_current_theme(self, session: SessionMemory) -> str:
         """現在のテーマを要約して返す。workflow/summarizer.py に委譲。"""
-        return summarize_theme(session, self.llm)
+        return summarize_theme(session, create_llm())
 
     # -------------------------------------------------------------------
     # 全テーマをシーケンシャルに実行するメインエントリ
@@ -100,6 +106,7 @@ class AgentRunner:
             while not session.all_themes_done:
                 summary_text = self._run_one_theme(session)
                 session.advance_theme(summary_text)
+                session.summary_memory += f"\n## {session.current_theme}\n{summary_text}"
 
             theme_summaries = [
                 ThemeSummary(theme=s["theme"], summary=s["summary"])
@@ -129,6 +136,14 @@ class AgentRunner:
             session = session_manager.get_session(session_id)
             if not session:
                 raise ValueError("Session not found")
+            if session.all_themes_done:
+                job_statuses[job_id] = {
+                    "status": "completed",
+                    "all_themes_done": True,
+                    "is_theme_end": True,
+                }
+                return
+
             active = session.active_personas
             if not active:
                 raise ValueError("No active personas for current theme")
@@ -137,6 +152,13 @@ class AgentRunner:
             agent_input = build_agent_input(session, persona)
             message = self.run_agent(agent_input)
 
+            session.history.append(MessageHistory(
+                id=_uuid.uuid4().hex,
+                theme=session.current_theme,
+                agent_name=persona.name,
+                content=message,
+                turn_order=session.turn_count_in_theme,
+            ))
             session.turn_count_in_theme += 1
             is_theme_end = session.turn_count_in_theme >= session.turns_per_theme
 
@@ -144,6 +166,7 @@ class AgentRunner:
                 "status": "completed",
                 "agent_name": persona.name,
                 "message": message,
+                "theme": session.current_theme,
                 "is_theme_end": is_theme_end,
             }
 
@@ -163,6 +186,7 @@ class AgentRunner:
             job_statuses[job_id] = {
                 "status": "completed",
                 "summary_text": summary_text,
+                "all_themes_done": session.all_themes_done,
             }
 
         except Exception as e:
