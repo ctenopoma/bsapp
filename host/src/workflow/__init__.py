@@ -1,0 +1,29 @@
+"""
+workflow パッケージ
+=====================
+エージェント議論の各ステップを独立したモジュールに分離しています。
+各ファイルを書き換えることで、議論の進め方を自由にカスタマイズできます。
+
+モジュール一覧:
+- persona_selector.py : 次に発言するペルソナの選び方
+- prompt_builder.py   : LLMへのプロンプトテンプレート
+- input_builder.py    : AgentInput (エージェントへの入力) の組み立て
+- summarizer.py       : テーマ要約の生成
+- turn_runner.py      : 1テーマ分のターン実行ループ
+"""
+
+from .persona_selector import select_persona
+from .input_builder import build_agent_input
+from .prompt_builder import DEFAULT_OUTPUT_FORMAT, AGENT_PROMPT_TEMPLATE, SUMMARY_PROMPT_TEMPLATE
+from .summarizer import summarize_theme
+from .turn_runner import run_one_theme
+
+__all__ = [
+    "select_persona",
+    "build_agent_input",
+    "DEFAULT_OUTPUT_FORMAT",
+    "AGENT_PROMPT_TEMPLATE",
+    "SUMMARY_PROMPT_TEMPLATE",
+    "summarize_theme",
+    "run_one_theme",
+]

@@ -1,12 +1,17 @@
-import random
+import os
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
-from typing import Dict, Any, List
-import os
+from typing import Dict, Any
 
 from .session_manager import session_manager, SessionMemory
-from .rag_manager import rag_manager
-from .models import Persona, TaskModel, AgentInput, MessageHistory, ThemeSummary, FullSessionResult
+from .models import MessageHistory, ThemeSummary, FullSessionResult
+from .workflow import (
+    select_persona,
+    build_agent_input,
+    run_one_theme,
+    summarize_theme,
+    AGENT_PROMPT_TEMPLATE,
+)
 
 # Temporary simple dictionary to hold job statuses
 job_statuses: Dict[str, Dict[str, Any]] = {}
@@ -26,76 +31,16 @@ def create_llm() -> ChatOpenAI:
     )
 
 
-GLOBAL_LLM = create_llm()
-
-# デフォルトの出力フォーマット指定
-DEFAULT_OUTPUT_FORMAT = (
-    "【発言者】{name}\n"
-    "【主張】(1〜2文で主張を述べる)\n"
-    "【根拠】(根拠や補足を1〜2文で)\n"
-    "300字以内で記述してください。"
-)
-
-
-# -------------------------------------------------------------------
-# ペルソナ選択関数 (差し替え可能)
-# 将来的にはオーケストレーター型やルールベースに置き換える
-# -------------------------------------------------------------------
-def select_persona(personas: List[Persona], session: SessionMemory) -> Persona:
-    """次に発言するペルソナをランダムに選ぶ。"""
-    return random.choice(personas)
-
-
-# -------------------------------------------------------------------
-# AgentInput 組み立て
-# -------------------------------------------------------------------
-def build_agent_input(
-    session: SessionMemory,
-    persona: Persona,
-    output_format: str = "",
-) -> AgentInput:
-    """セッション状態とペルソナからエージェントへの入力を構築する。"""
-    
-    # 割り当てるタスクをランダムに選択
-    task_description = ""
-    if session.tasks:
-        assigned_task = random.choice(session.tasks)
-        task_description = assigned_task.description
-
-    # RAG取得 (ペルソナのrag_configに基づく)
-    rag_context = ""
-    if persona.rag_config.enabled and persona.rag_config.tag:
-        rag_context = rag_manager.search_context(
-            tag=persona.rag_config.tag,
-            query=session.current_theme,
-        )
-
-    return AgentInput(
-        persona=persona,
-        task=task_description,
-        query=session.current_theme,
-        history=session.history[-5:],  # 直近5件
-        rag_context=rag_context,
-        output_format=output_format or DEFAULT_OUTPUT_FORMAT.format(name=persona.name),
-    )
-
-
-# -------------------------------------------------------------------
-# エージェント実行
-# -------------------------------------------------------------------
 class AgentRunner:
     def __init__(self):
         self.llm = GLOBAL_LLM
 
-    def _invoke_llm(self, prompt: str):
-        try:
-            return self.llm.invoke(prompt)
-        except Exception:
-            self.llm = create_llm()
-            return self.llm.invoke(prompt)
+    def run_agent(self, agent_input) -> str:
+        """AgentInputを受け取りLLMに投げてレスポンスを返す。
 
-    def run_agent(self, agent_input: AgentInput) -> str:
-        """AgentInputを受け取りLLMに投げてレスポンスを返す。"""
+        プロンプトを変更する場合は workflow/prompt_builder.py の
+        AGENT_PROMPT_TEMPLATE を編集してください。
+        """
         recent_history = "\n".join(
             [f"{msg.agent_name}: {msg.content}" for msg in agent_input.history]
         )
@@ -111,21 +56,7 @@ class AgentRunner:
                 "role", "task", "name", "query",
                 "rag_section", "history", "output_format",
             ],
-            template="""
-あなたは {role} です。
-タスク: {task}
-あなたの名前は {name} です。グループディスカッションに参加しています。
-
-議題 (Query): {query}
-
-{rag_section}
-
-直近の会話履歴:
-{history}
-
-以下のフォーマットで発言してください:
-{output_format}
-""",
+            template=AGENT_PROMPT_TEMPLATE,
         )
 
         formatted_prompt = prompt_template.format(
@@ -142,52 +73,16 @@ class AgentRunner:
         return response.content
 
     def _run_one_theme(self, session: SessionMemory) -> str:
-        """現在のテーマを turns_per_theme ターン回して要約テキストを返す。"""
-        active = session.active_personas
-        if not active:
-            raise ValueError(f"テーマ '{session.current_theme}' に有効なペルソナがありません")
-        for _ in range(session.turns_per_theme):
-            persona = select_persona(active, session)
-            agent_input = build_agent_input(session, persona)
-            message = self.run_agent(agent_input)
-
-            # 履歴に追記
-            import uuid as _uuid
-            session.history.append(MessageHistory(
-                id=_uuid.uuid4().hex,
-                theme=session.current_theme,
-                agent_name=persona.name,
-                content=message,
-                turn_order=session.turn_count_in_theme,
-            ))
-            session.turn_count_in_theme += 1
-
-        return self._summarize_current_theme(session)
+        """現在のテーマを実行して要約を返す。workflow/turn_runner.py に委譲。"""
+        return run_one_theme(
+            session=session,
+            agent_executor=self.run_agent,
+            summarizer=lambda s: summarize_theme(s, self.llm),
+        )
 
     def _summarize_current_theme(self, session: SessionMemory) -> str:
-        """現在のテーマの履歴をまとめて要約テキストを返す。"""
-        theme_history = [
-            msg for msg in session.history if msg.theme == session.current_theme
-        ]
-        history_text = "\n".join(
-            [f"{msg.agent_name}: {msg.content}" for msg in theme_history]
-        )
-
-        prompt_template = PromptTemplate(
-            input_variables=["theme", "history"],
-            template="""
-テーマ「{theme}」に関するディスカッションを要約してください。
-各ペルソナが主張したポイントを整理してまとめてください。
-
-ディスカッション履歴:
-{history}
-""",
-        )
-
-        response = self._invoke_llm(
-            prompt_template.format(theme=session.current_theme, history=history_text)
-        )
-        return response.content
+        """現在のテーマを要約して返す。workflow/summarizer.py に委譲。"""
+        return summarize_theme(session, self.llm)
 
     # -------------------------------------------------------------------
     # 全テーマをシーケンシャルに実行するメインエントリ
@@ -202,12 +97,10 @@ class AgentRunner:
             if not session.personas:
                 raise ValueError("No personas available")
 
-            # テーマをひとつずつシーケンシャルに処理
             while not session.all_themes_done:
                 summary_text = self._run_one_theme(session)
                 session.advance_theme(summary_text)
 
-            # 全要約を結合して最終レポートを生成
             theme_summaries = [
                 ThemeSummary(theme=s["theme"], summary=s["summary"])
                 for s in session.summaries
