@@ -4,7 +4,10 @@
       "Bash(python debug_test.py)",
       "Bash(npm install:*)",
       "Bash(cargo build:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(docker --version)",
+      "Bash(docker info:*)",
+      "Bash(docker build:*)"
     ]
   }
 }

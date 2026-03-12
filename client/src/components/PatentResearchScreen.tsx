@@ -122,7 +122,6 @@ export default function PatentResearchScreen() {
   const [reports, setReports] = useState<ReportEntry[]>([]);
   const [summary, setSummary] = useState('');
   const [summaryStatus, setSummaryStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle');
-  const [currentSessionId, setCurrentSessionId] = useState('');
   const [globalError, setGlobalError] = useState('');
 
   // 履歴
@@ -230,7 +229,6 @@ export default function PatentResearchScreen() {
     const sessionId = crypto.randomUUID();
     const title = `${orderedCompanies.map(c => c.company).slice(0, 3).join('・')}${orderedCompanies.length > 3 ? '...' : ''} (${new Date().toLocaleDateString('ja-JP')})`;
     await createPatentSession(sessionId, title);
-    setCurrentSessionId(sessionId);
 
     const completedReports: PatentAnalyzeResponse[] = [];
 

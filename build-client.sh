@@ -32,7 +32,7 @@ IMAGE_NAME="bsapp-client-builder"
 DIST_DIR="$SCRIPT_DIR/host/client_dist"
 
 echo "====================================================="
-echo "  BSapp クライアント ビルド"
+echo "  BSApp クライアント ビルド"
 echo "  ターゲット : $TARGET"
 echo "  ソース     : $SCRIPT_DIR/client"
 echo "  出力先     : $DIST_DIR"
@@ -54,12 +54,18 @@ docker build \
 if [[ "$TARGET" == "windows" ]]; then
   RUST_TARGET="x86_64-pc-windows-gnu"
   BUNDLE_SUBDIR="$RUST_TARGET/release/bundle"
-  BUILD_CMD="cd /build/client && npm ci && npm run tauri build -- --target $RUST_TARGET"
+  BUNDLE_DIR_IN_CONTAINER="/build/client/src-tauri/target/$BUNDLE_SUBDIR"
+  BUILD_CMD="find '$BUNDLE_DIR_IN_CONTAINER' -type f \\( -name '*.exe' -o -name '*.msi' \\) -delete 2>/dev/null || true; cd /build/client && npm ci && npm run tauri build -- --target $RUST_TARGET"
+  ARTIFACT_PATTERNS=("*.exe" "*.msi")
 else
   RUST_TARGET="x86_64-unknown-linux-gnu"
   BUNDLE_SUBDIR="release/bundle"
-  BUILD_CMD="cd /build/client && npm ci && npm run tauri build"
+  BUNDLE_DIR_IN_CONTAINER="/build/client/src-tauri/target/$BUNDLE_SUBDIR"
+  BUILD_CMD="find '$BUNDLE_DIR_IN_CONTAINER' -type f \\( -name '*.AppImage' -o -name '*.deb' \\) -delete 2>/dev/null || true; cd /build/client && npm ci && npm run tauri build"
+  ARTIFACT_PATTERNS=("*.AppImage" "*.deb")
 fi
+
+BUNDLE_DIR="$SCRIPT_DIR/client/src-tauri/target/$BUNDLE_SUBDIR"
 
 echo ""
 echo "[2/3] コンテナ内でビルド中 (ターゲット: $RUST_TARGET)..."
@@ -75,16 +81,11 @@ echo ""
 echo "[3/3] 成果物を $DIST_DIR にコピー中..."
 mkdir -p "$DIST_DIR"
 
-BUNDLE_DIR="$SCRIPT_DIR/client/src-tauri/target/$BUNDLE_SUBDIR"
-
 if [[ -d "$BUNDLE_DIR" ]]; then
-  # 各バンドル形式のファイルをコピー
-  find "$BUNDLE_DIR" -type f \( \
-    -name "*.exe" -o \
-    -name "*.msi" -o \
-    -name "*.AppImage" -o \
-    -name "*.deb" \
-  \) -exec cp -v {} "$DIST_DIR/" \;
+  for pattern in "${ARTIFACT_PATTERNS[@]}"; do
+    find "$DIST_DIR" -maxdepth 1 -type f -name "$pattern" -delete
+    find "$BUNDLE_DIR" -type f -name "$pattern" -exec cp -v {} "$DIST_DIR/" \;
+  done
   echo ""
   echo "コピー完了: $DIST_DIR"
   ls -lh "$DIST_DIR/"

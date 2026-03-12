@@ -70,3 +70,5 @@ pnpm-debug.log*
 qdrant_storage/
 *.sqlite3
 *.db
+
+*exe
