@@ -6,7 +6,7 @@ input_builder.py
 ★ ここを書き換えることで各エージェントへ渡す情報を変更できます ★
 
 変更できること:
-  - 渡す履歴の件数 (history[-5:] の数を変更)
+  - 渡す履歴の件数・圧縮設定 (AppSettings の max_history_tokens / recent_history_count)
   - タスク割り当て方法 (ランダム → 役割ベース など)
   - RAG取得クエリのカスタマイズ
   - output_format の動的変更
@@ -18,6 +18,7 @@ from ..models import Persona, AgentInput
 from ..session_manager import SessionMemory
 from ..rag_manager import rag_manager
 from ..app_settings import get_settings
+from .history_compressor import compress_history
 
 
 def build_agent_input(
@@ -71,17 +72,28 @@ def build_agent_input(
     # セッション共通の事前情報とペルソナ固有の事前情報を結合
     pre_info = "\n\n".join(filter(None, [session.pre_info, persona.pre_info]))
 
+    # ------------------------------------------------------------------
+    # 会話履歴の取得と圧縮
+    # max_history_tokens を超える場合、recent_history_count 件より前を要約圧縮する
+    # ------------------------------------------------------------------
+    settings = get_settings()
+    history = compress_history(
+        history=session.history,
+        recent_count=settings.recent_history_count,
+        max_tokens=settings.max_history_tokens,
+    )
+
     return AgentInput(
         persona=persona,
         task=task_description,
         query=query,
-        history=session.history[-5:],   # ← 渡す履歴件数をここで調整
+        history=history,
         rag_context=rag_context,
         pre_info=pre_info,
         previous_summaries=session.summary_memory,
         output_format=(
             output_format
             or (session.current_theme_config.output_format if session.current_theme_config else "")
-            or get_settings().default_output_format.format(name=persona.name)
+            or settings.default_output_format.format(name=persona.name)
         ),
     )

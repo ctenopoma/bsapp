@@ -5,11 +5,12 @@ workflow パッケージ
 各ファイルを書き換えることで、議論の進め方を自由にカスタマイズできます。
 
 モジュール一覧:
-- persona_selector.py : 次に発言するペルソナの選び方
-- prompt_builder.py   : LLMへのプロンプトテンプレート
-- input_builder.py    : AgentInput (エージェントへの入力) の組み立て
-- summarizer.py       : テーマ要約の生成
-- turn_runner.py      : 1テーマ分のターン実行ループ
+- persona_selector.py    : 次に発言するペルソナの選び方
+- prompt_builder.py      : LLMへのプロンプトテンプレート
+- input_builder.py       : AgentInput (エージェントへの入力) の組み立て
+- history_compressor.py  : 会話履歴のトークン圧縮
+- summarizer.py          : テーマ要約の生成
+- turn_runner.py         : 1テーマ分のターン実行ループ
 """
 
 from .persona_selector import select_persona

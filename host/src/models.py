@@ -124,6 +124,8 @@ class AppSettings(BaseModel):
     default_output_format: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
     agent_prompt_template: str = ""   # 空=prompt_builder.pyのデフォルト値を使用
     summary_prompt_template: str = "" # 空=prompt_builder.pyのデフォルト値を使用
+    max_history_tokens: int = 50000    # 会話履歴の最大トークン数 (0=無制限)
+    recent_history_count: int = 5     # 圧縮しない直近の会話数
 
 
 class HealthResponse(BaseModel):

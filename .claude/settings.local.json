@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python debug_test.py)",
       "Bash(npm install:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }
