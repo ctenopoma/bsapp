@@ -17,12 +17,16 @@ llm_base_url = f"http://{llm_ip}:{llm_port}/v1"
 llm_model = os.environ.get("LLM_MODEL", "llama3")
 llm_api_key = os.environ.get("LLM_API_KEY", "dummy")
 
-GLOBAL_LLM = ChatOpenAI(
-    temperature=0.7,
-    model=llm_model,
-    base_url=llm_base_url,
-    api_key=llm_api_key
-)
+def create_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        temperature=0.7,
+        model=llm_model,
+        base_url=llm_base_url,
+        api_key=llm_api_key
+    )
+
+
+GLOBAL_LLM = create_llm()
 
 # デフォルトの出力フォーマット指定
 DEFAULT_OUTPUT_FORMAT = (
@@ -83,6 +87,13 @@ class AgentRunner:
     def __init__(self):
         self.llm = GLOBAL_LLM
 
+    def _invoke_llm(self, prompt: str):
+        try:
+            return self.llm.invoke(prompt)
+        except Exception:
+            self.llm = create_llm()
+            return self.llm.invoke(prompt)
+
     def run_agent(self, agent_input: AgentInput) -> str:
         """AgentInputを受け取りLLMに投げてレスポンスを返す。"""
         recent_history = "\n".join(
@@ -127,7 +138,7 @@ class AgentRunner:
             output_format=agent_input.output_format,
         )
 
-        response = self.llm.invoke(formatted_prompt)
+        response = self._invoke_llm(formatted_prompt)
         return response.content
 
     def _run_one_theme(self, session: SessionMemory) -> str:
@@ -173,7 +184,7 @@ class AgentRunner:
 """,
         )
 
-        response = self.llm.invoke(
+        response = self._invoke_llm(
             prompt_template.format(theme=session.current_theme, history=history_text)
         )
         return response.content

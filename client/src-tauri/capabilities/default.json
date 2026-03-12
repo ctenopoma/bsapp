@@ -15,7 +15,14 @@
     "sql:allow-close",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "http://localhost:8080/**" }, { "url": "http://127.0.0.1:8080/**" }]
+      "allow": [
+        { "url": "http://localhost:8080/**" },
+        { "url": "http://127.0.0.1:8080/**" },
+        { "url": "http://localhost:8089/**" },
+        { "url": "http://127.0.0.1:8089/**" },
+        { "url": "http://localhost:8091/**" },
+        { "url": "http://127.0.0.1:8091/**" }
+      ]
     },
     "http:allow-fetch"
   ]
