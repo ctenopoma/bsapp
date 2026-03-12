@@ -1,0 +1,11 @@
+{
+  "turns_per_theme": 5,
+  "default_output_format": "【発言者】{name}\n【主張】(1〜2文で主張を述べる)\n【根拠】(根拠や補足を1〜2文で)\n300字以内で記述してください。",
+  "agent_prompt_template": "あなたは {role} です。\nタスク: {task}\nあなたの名前は {name} です。グループディスカッションに参加しています。\n\n議題 (Query): {query}\n\n{pre_info_section}\n\n{rag_section}\n\n直近の会話履歴:\n{history}\n\n他テーマの要約:\n{previous_summaries}\n\n以下のフォーマットで発言してください:\n{output_format}\n",
+  "summary_prompt_template": "テーマ「{theme}」に関するディスカッションを要約してください。\n各ペルソナが主張したポイントを整理してまとめてください。\n\nディスカッション履歴:\n{history}\n\n以下のフォーマットで発言してください:\n{output_format}\n",
+  "max_history_tokens": 50000,
+  "recent_history_count": 5,
+  "patent_company_column": "出願人",
+  "patent_content_column": "請求項",
+  "patent_date_column": "出願日"
+}

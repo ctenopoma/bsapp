@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig } from '../types/api';
 import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig } from '../lib/db';
@@ -41,12 +41,19 @@ export default function SetupScreen() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [allTasks, setAllTasks] = useState<TaskModel[]>([]);
   const [themeEntries, setThemeEntries] = useState<ThemeEntry[]>([newEntry()]);
+  const themeTextRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
   const [commonTheme, setCommonTheme] = useState('');
   const [preInfo, setPreInfo] = useState('');
   const [turnsPerTheme, setTurnsPerTheme] = useState(5);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
+
+  const resizeTextarea = (element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${element.scrollHeight}px`;
+  };
 
   useEffect(() => {
     getPersonas().then(setPersonas).catch(console.error);
@@ -64,6 +71,12 @@ export default function SetupScreen() {
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    themeEntries.forEach(entry => {
+      resizeTextarea(themeTextRefs.current[entry.localId] ?? null);
+    });
+  }, [themeEntries]);
 
   const addTheme = () => setThemeEntries(prev => {
     const next = [...prev, newEntry()];
@@ -207,21 +220,27 @@ export default function SetupScreen() {
         {themeEntries.map((entry, idx) => (
           <div key={entry.localId} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
             {/* テーマ入力行 */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
                 Theme {idx + 1}
               </span>
-              <input
-                type="text"
+              <textarea
+                ref={element => {
+                  themeTextRefs.current[entry.localId] = element;
+                }}
                 value={entry.text}
-                onChange={e => updateText(entry.localId, e.target.value)}
+                onChange={e => {
+                  updateText(entry.localId, e.target.value);
+                  resizeTextarea(e.target);
+                }}
                 placeholder="テーマを入力..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                rows={3}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none overflow-hidden"
               />
               <button
                 onClick={() => removeTheme(entry.localId)}
                 disabled={themeEntries.length === 1}
-                className="p-1.5 text-gray-300 hover:text-red-500 disabled:opacity-20 transition-colors"
+                className="mt-1.5 p-1.5 text-gray-300 hover:text-red-500 disabled:opacity-20 transition-colors"
               >
                 <Trash2 size={15} />
               </button>
