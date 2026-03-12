@@ -24,6 +24,10 @@
         { "url": "http://127.0.0.1:8091/**" }
       ]
     },
-    "http:allow-fetch"
+    "http:allow-fetch",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted"
   ]
 }

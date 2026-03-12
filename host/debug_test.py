@@ -65,7 +65,7 @@ from src.workflow.persona_selector import select_persona
 from src.workflow.input_builder import build_agent_input
 from src.workflow.turn_runner import run_one_theme
 from src.workflow.summarizer import summarize_theme
-from src.app_settings import get_settings
+from src.app_settings import get_settings, get_llm_config
 from langchain_core.prompts import PromptTemplate
 
 
@@ -177,17 +177,21 @@ def get_llm():
     if USE_REAL_LLM:
         from dotenv import load_dotenv
         load_dotenv(os.path.join(_HOST_DIR, ".env"))
+        # NO_PROXY を設定してプロキシ経由にならないようにする
+        c = get_llm_config()
+        no_proxy_hosts = {"localhost", "127.0.0.1", c.llm_ip}
+        existing = {h.strip() for h in os.environ.get("NO_PROXY", "").split(",") if h.strip()}
+        merged = ",".join(sorted(existing | no_proxy_hosts))
+        os.environ["NO_PROXY"] = merged
+        os.environ["no_proxy"] = merged
+
         from langchain_openai import ChatOpenAI
-        llm_ip = os.environ.get("LLM_IP", "127.0.0.1")
-        llm_port = os.environ.get("LLM_PORT", "11434")
-        llm_model = os.environ.get("LLM_MODEL", "llama3")
-        llm_api_key = os.environ.get("LLM_API_KEY", "dummy")
-        print(f"  [LLM] 実LLM使用: {llm_model} @ {llm_ip}:{llm_port}")
+        print(f"  [LLM] 実LLM使用: {c.llm_model} @ {c.llm_ip}:{c.llm_port}")
         return ChatOpenAI(
-            temperature=0.7,
-            model=llm_model,
-            base_url=f"http://{llm_ip}:{llm_port}/v1",
-            api_key=llm_api_key,
+            temperature=c.llm_temperature,
+            model=c.llm_model,
+            base_url=f"http://{c.llm_ip}:{c.llm_port}/v1",
+            api_key=c.llm_api_key,
         )
     else:
         print("  [LLM] MockLLM 使用")

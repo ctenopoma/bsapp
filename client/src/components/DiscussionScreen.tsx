@@ -5,6 +5,7 @@ import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
 import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -54,6 +55,7 @@ export default function DiscussionScreen() {
             if (turnRes.all_themes_done) {
               setStatus('done');
               setCurrentAction('全テーマの議論が完了しました。');
+              notifyDone();
               return;
             }
             isThemeEnd = turnRes.is_theme_end ?? false;
@@ -95,6 +97,7 @@ export default function DiscussionScreen() {
           if (allThemesDone) {
             setStatus('done');
             setCurrentAction('全テーマの議論が完了しました。');
+            notifyDone();
             return;
           }
         }
@@ -107,6 +110,17 @@ export default function DiscussionScreen() {
     } catch (e: any) {
       setStatus('error');
       setCurrentAction(e.message || 'エラーが発生しました。');
+    }
+  };
+
+  const notifyDone = async () => {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === 'granted';
+    }
+    if (granted) {
+      sendNotification({ title: 'AI Discuss', body: '全テーマの議論が完了しました。' });
     }
   };
 
