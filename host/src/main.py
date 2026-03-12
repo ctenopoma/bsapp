@@ -7,7 +7,12 @@ app = FastAPI(title="BSapp Backend", version="0.1.0")
 # CORS設定 (Tauriからのアクセスを許可)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 開発用。本番では変更を検討
+    allow_origins=[
+        "http://localhost:1420",
+        "http://127.0.0.1:1420",
+        "http://tauri.localhost",
+        "tauri://localhost"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

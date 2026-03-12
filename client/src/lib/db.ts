@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import { Persona, MessageHistory } from '../types/api';
+import { Persona, TaskModel, MessageHistory } from '../types/api';
 
 let _db: Database | null = null;
 
@@ -10,13 +10,19 @@ export async function initDb(): Promise<void> {
 async function getDb(): Promise<Database> {
   if (_db) return _db;
   _db = await Database.load('sqlite:bsapp.db');
-  // スキーマ初期化
+
   await _db.execute(`
     CREATE TABLE IF NOT EXISTS personas (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      role TEXT NOT NULL,
-      task TEXT NOT NULL
+      role TEXT NOT NULL
+    )
+  `);
+  
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL
     )
   `);
   await _db.execute(`
@@ -38,27 +44,35 @@ async function getDb(): Promise<Database> {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
   `);
+  await _db.execute(`
+    CREATE TABLE IF NOT EXISTS theme_entries (
+      id TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      persona_ids TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  `);
   return _db;
 }
 
 export async function getPersonas(): Promise<Persona[]> {
   const db = await getDb();
-  return db.select<Persona[]>('SELECT id, name, role, task FROM personas ORDER BY rowid');
+  return db.select<Persona[]>('SELECT id, name, role FROM personas ORDER BY rowid');
 }
 
 export async function addPersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'INSERT INTO personas (id, name, role, task) VALUES ($1, $2, $3, $4)',
-    [p.id, p.name, p.role, p.task]
+    'INSERT INTO personas (id, name, role) VALUES ($1, $2, $3)',
+    [p.id, p.name, p.role]
   );
 }
 
 export async function updatePersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'UPDATE personas SET name=$1, role=$2, task=$3 WHERE id=$4',
-    [p.name, p.role, p.task, p.id]
+    'UPDATE personas SET name=$1, role=$2 WHERE id=$3',
+    [p.name, p.role, p.id]
   );
 }
 
@@ -67,12 +81,78 @@ export async function deletePersona(id: string): Promise<void> {
   await db.execute('DELETE FROM personas WHERE id=$1', [id]);
 }
 
+export async function getTasks(): Promise<TaskModel[]> {
+  const db = await getDb();
+  return db.select<TaskModel[]>('SELECT id, description FROM tasks ORDER BY rowid');
+}
+
+export async function addTask(t: TaskModel): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT INTO tasks (id, description) VALUES ($1, $2)',
+    [t.id, t.description]
+  );
+}
+
+export async function updateTask(t: TaskModel): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE tasks SET description=$1 WHERE id=$2',
+    [t.description, t.id]
+  );
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM tasks WHERE id=$1', [id]);
+}
+
+export interface ThemeEntry {
+  id: string;
+  text: string;
+  persona_ids: string; // comma-separated persona IDs
+  sort_order: number;
+}
+
+export async function getThemeEntries(): Promise<ThemeEntry[]> {
+  const db = await getDb();
+  return db.select<ThemeEntry[]>('SELECT id, text, persona_ids, sort_order FROM theme_entries ORDER BY sort_order');
+}
+
+export async function saveThemeEntries(entries: ThemeEntry[]): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM theme_entries', []);
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    await db.execute(
+      'INSERT INTO theme_entries (id, text, persona_ids, sort_order) VALUES ($1, $2, $3, $4)',
+      [e.id, e.text, e.persona_ids, i]
+    );
+  }
+}
+
 export async function createSession(id: string, title: string): Promise<void> {
   const db = await getDb();
   await db.execute(
     'INSERT INTO sessions (id, title) VALUES ($1, $2)',
     [id, title]
   );
+}
+
+export interface SessionData {
+  id: string;
+  title: string;
+  created_at: string;
+}
+
+export async function getSessions(): Promise<SessionData[]> {
+  const db = await getDb();
+  return db.select<SessionData[]>('SELECT id, title, created_at FROM sessions ORDER BY created_at DESC');
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM sessions WHERE id=$1', [id]);
 }
 
 export async function getMessages(sessionId: string): Promise<MessageHistory[]> {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Persona, ThemeConfig } from '../types/api';
-import { getPersonas, createSession } from '../lib/db';
+import { Persona, TaskModel, ThemeConfig } from '../types/api';
+import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries } from '../lib/db';
 import { apiStartSession } from '../lib/api';
 import { Settings, Play, Plus, Trash2 } from 'lucide-react';
 
@@ -15,45 +15,103 @@ function newEntry(): ThemeEntry {
   return { localId: crypto.randomUUID(), text: '', personaIds: new Set() };
 }
 
+// DB形式 <-> UI形式変換
+function dbToUi(e: { id: string; text: string; persona_ids: string }): ThemeEntry {
+  return {
+    localId: e.id,
+    text: e.text,
+    personaIds: e.persona_ids ? new Set(e.persona_ids.split(',').filter(Boolean)) : new Set(),
+  };
+}
+
+function uiToDb(e: ThemeEntry, i: number) {
+  return {
+    id: e.localId,
+    text: e.text,
+    persona_ids: [...e.personaIds].join(','),
+    sort_order: i,
+  };
+}
+
 export default function SetupScreen() {
   const navigate = useNavigate();
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [allTasks, setAllTasks] = useState<TaskModel[]>([]);
   const [themeEntries, setThemeEntries] = useState<ThemeEntry[]>([newEntry()]);
+  const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     getPersonas().then(setPersonas).catch(console.error);
+    getTasks().then(tasks => {
+      setAllTasks(tasks);
+      setActiveTaskIds(new Set(tasks.map(t => t.id)));
+    }).catch(console.error);
+    // 保存されたテーマを読み込む
+    getThemeEntries().then(rows => {
+      if (rows.length > 0) {
+        setThemeEntries(rows.map(dbToUi));
+      }
+    }).catch(console.error);
   }, []);
 
-  const addTheme = () => setThemeEntries(prev => [...prev, newEntry()]);
+  const addTheme = () => setThemeEntries(prev => {
+    const next = [...prev, newEntry()];
+    saveThemeEntries(next.map(uiToDb)).catch(console.error);
+    return next;
+  });
 
   const removeTheme = (localId: string) =>
-    setThemeEntries(prev => prev.filter(e => e.localId !== localId));
+    setThemeEntries(prev => {
+      const next = prev.filter(e => e.localId !== localId);
+      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+      return next;
+    });
 
   const updateText = (localId: string, text: string) =>
-    setThemeEntries(prev => prev.map(e => e.localId === localId ? { ...e, text } : e));
+    setThemeEntries(prev => {
+      const next = prev.map(e => e.localId === localId ? { ...e, text } : e);
+      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+      return next;
+    });
 
   const togglePersona = (localId: string, personaId: string) => {
-    setThemeEntries(prev => prev.map(e => {
-      if (e.localId !== localId) return e;
-      const next = new Set(e.personaIds);
-      // 空（全員）の状態でトグルした場合は、全員を選択してから1人除外
-      if (next.size === 0) personas.forEach(p => next.add(p.id));
-      if (next.has(personaId)) next.delete(personaId);
-      else next.add(personaId);
-      // 再び全員になったら空（全員）に正規化
-      if (next.size === personas.length) next.clear();
-      return { ...e, personaIds: next };
-    }));
+    setThemeEntries(prev => {
+      const next = prev.map(e => {
+        if (e.localId !== localId) return e;
+        const pids = new Set(e.personaIds);
+        if (pids.size === 0) personas.forEach(p => pids.add(p.id));
+        if (pids.has(personaId)) pids.delete(personaId);
+        else pids.add(personaId);
+        if (pids.size === personas.length) pids.clear();
+        return { ...e, personaIds: pids };
+      });
+      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+      return next;
+    });
   };
 
   const isActive = (entry: ThemeEntry, personaId: string) =>
     entry.personaIds.size === 0 || entry.personaIds.has(personaId);
 
+  const toggleTask = (taskId: string) => {
+    setActiveTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
   const handleStart = async () => {
     const valid = themeEntries.filter(e => e.text.trim());
     if (valid.length === 0) { setError('テーマを1つ以上入力してください。'); return; }
+
+    const usedTasks = allTasks.filter(t => activeTaskIds.has(t.id));
+    if (usedTasks.length === 0 && allTasks.length > 0) {
+      setError('タスクを1つ以上選択してください。'); return;
+    }
 
     // 全テーマで使われるペルソナのunionを送信
     const usedIds = new Set<string>();
@@ -72,7 +130,7 @@ export default function SetupScreen() {
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, history: [] });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [] });
       const sessionId = res.session_id;
       const title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
       await createSession(sessionId, title);
@@ -84,13 +142,13 @@ export default function SetupScreen() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto flex flex-col h-full">
+    <div className="p-8 max-w-3xl mx-auto flex flex-col h-full overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
           <Settings className="text-blue-600" />
           Setup Discussion
         </h1>
-        <p className="text-gray-600 mt-2">テーマごとに参加するペルソナを設定してください。</p>
+        <p className="text-gray-600 mt-2">テーマごとに参加するペルソナを設定し、割り当てるタスクを選んでください。</p>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -151,6 +209,29 @@ export default function SetupScreen() {
       >
         <Plus size={15} /> テーマを追加
       </button>
+
+      {allTasks.length > 0 && (
+        <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-3">使用するタスクの選択</h2>
+          <p className="text-sm text-gray-500 mb-4">ここで選んだタスクが議事中にランダムで割り当てられます。</p>
+          <div className="flex flex-wrap gap-2">
+            {allTasks.map(t => (
+              <button
+                key={t.id}
+                onClick={() => toggleTask(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  activeTaskIds.has(t.id)
+                    ? 'bg-purple-100 border-purple-400 text-purple-800'
+                    : 'bg-gray-100 border-gray-200 text-gray-400'
+                }`}
+                title={t.description}
+              >
+                {t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 bg-red-50 text-red-700 p-4 rounded-lg border border-red-200">

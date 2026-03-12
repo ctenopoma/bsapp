@@ -107,12 +107,12 @@ RERANK_API_KEY=dummy
 FastAPIサーバーをリロードモードで起動するには、以下のコマンドを実行します。
 
 ```bash
-uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 起動後、以下のアドレスからアクセスできます。
-- **API ベースURL**: `http://localhost:8000`
-- **インタラクティブ API ドキュメント (Swagger UI)**: `http://localhost:8000/docs`
+- **API ベースURL**: `http://localhost:8080`
+- **インタラクティブ API ドキュメント (Swagger UI)**: `http://localhost:8080/docs`
 
 ---
 

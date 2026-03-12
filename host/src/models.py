@@ -17,8 +17,11 @@ class Persona(BaseModel):
     id: str
     name: str
     role: str
-    task: str
-    rag_config: RagConfig = Field(default_factory=RagConfig)
+    rag_config: Optional[RagConfig] = Field(default_factory=RagConfig)
+
+class TaskModel(BaseModel):
+    id: str
+    description: str
 
 
 class MessageHistory(BaseModel):
@@ -34,7 +37,7 @@ class MessageHistory(BaseModel):
 # -------------------------------------------------------------------
 class AgentInput(BaseModel):
     persona: Persona
-    task: str           # persona.task と同値だが、将来的に動的上書きできるよう分離
+    task: str           # The randomly assigned task description
     query: str          # 今回のターンで考えさせる問い (現状はテーマをそのまま渡す)
     history: List[MessageHistory]
     rag_context: str = ""        # RAGが有効な場合に事前取得して渡す
@@ -52,6 +55,7 @@ class ThemeConfig(BaseModel):
 class SessionStartRequest(BaseModel):
     themes: List[ThemeConfig]
     personas: List[Persona]
+    tasks: List[TaskModel]
     history: List[MessageHistory] = Field(default_factory=list)
     turns_per_theme: int = 5     # テーマ1つあたりのターン数
 

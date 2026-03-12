@@ -6,7 +6,7 @@ import os
 
 from .session_manager import session_manager, SessionMemory
 from .rag_manager import rag_manager
-from .models import Persona, AgentInput, MessageHistory, ThemeSummary, FullSessionResult
+from .models import Persona, TaskModel, AgentInput, MessageHistory, ThemeSummary, FullSessionResult
 
 # Temporary simple dictionary to hold job statuses
 job_statuses: Dict[str, Dict[str, Any]] = {}
@@ -51,6 +51,13 @@ def build_agent_input(
     output_format: str = "",
 ) -> AgentInput:
     """セッション状態とペルソナからエージェントへの入力を構築する。"""
+    
+    # 割り当てるタスクをランダムに選択
+    task_description = ""
+    if session.tasks:
+        assigned_task = random.choice(session.tasks)
+        task_description = assigned_task.description
+
     # RAG取得 (ペルソナのrag_configに基づく)
     rag_context = ""
     if persona.rag_config.enabled and persona.rag_config.tag:
@@ -61,7 +68,7 @@ def build_agent_input(
 
     return AgentInput(
         persona=persona,
-        task=persona.task,
+        task=task_description,
         query=session.current_theme,
         history=session.history[-5:],  # 直近5件
         rag_context=rag_context,

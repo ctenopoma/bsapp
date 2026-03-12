@@ -8,6 +8,15 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "sql:default"
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "http://localhost:8080/**" }, { "url": "http://127.0.0.1:8080/**" }]
+    },
+    "http:allow-fetch"
   ]
 }

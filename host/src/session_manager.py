@@ -10,6 +10,7 @@ class SessionMemory:
         self.themes: List[ThemeConfig] = request.themes
         self.current_theme_index: int = 0
         self.personas: List[Persona] = request.personas
+        self.tasks: List[any] = request.tasks # will be converted by pydantic automatically
         self.history: List[MessageHistory] = request.history
         self.turns_per_theme: int = request.turns_per_theme
         self.turn_count_in_theme: int = 0

@@ -12,19 +12,33 @@ import {
   RagAddResponse,
   RagStatusResponse,
 } from '../types/api';
+import { fetch } from '@tauri-apps/plugin-http';
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
+async function request<T>(path: string, options?: any): Promise<T> {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: options?.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: options?.body,
+    });
+    
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error ${res.status}: ${text}`);
+    }
+    
+    return res.json() as Promise<T>;
+  } catch (err: any) {
+    let detail = String(err);
+    if (typeof err === 'object' && err !== null) {
+      try {
+        detail = JSON.stringify(err);
+      } catch (e) {}
+    }
+    throw new Error(`[Fetch Failed] ${err.message || ''} | Detail: ${detail}`);
   }
-  return res.json() as Promise<T>;
 }
 
 export function apiStartSession(req: SessionStartRequest): Promise<SessionStartResponse> {

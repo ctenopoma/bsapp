@@ -7,8 +7,12 @@ export interface Persona {
   id: string;
   name: string;
   role: string;
-  task: string;
   rag_config?: RagConfig;
+}
+
+export interface TaskModel {
+  id: string;
+  description: string;
 }
 
 export interface MessageHistory {
@@ -28,6 +32,7 @@ export interface ThemeConfig {
 export interface SessionStartRequest {
   themes: ThemeConfig[];
   personas: Persona[];
+  tasks: TaskModel[];
   history: MessageHistory[];
   turns_per_theme?: number;
 }
