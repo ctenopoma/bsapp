@@ -122,6 +122,25 @@ export default function SettingsScreen() {
         </Field>
       </section>
 
+      {/* 会話履歴設定 */}
+      <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
+        <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">会話履歴設定</h2>
+        <p className="text-xs text-gray-500">
+          エージェントに渡す会話履歴のトークン上限と、圧縮しない直近の件数を設定します。
+          上限を超えた古い履歴はLLMで要約圧縮されます（0=無制限）。
+        </p>
+        <Field label="会話履歴の最大トークン数" hint="（0=無制限）">
+          <input className={INPUT_CLS} type="number" min="0"
+            value={form.max_history_tokens}
+            onChange={e => set('max_history_tokens', parseInt(e.target.value) || 0)} />
+        </Field>
+        <Field label="圧縮しない直近の会話数" hint="（この件数より前の履歴を圧縮対象にする）">
+          <input className={INPUT_CLS} type="number" min="1" max="200"
+            value={form.recent_history_count}
+            onChange={e => set('recent_history_count', parseInt(e.target.value) || 5)} />
+        </Field>
+      </section>
+
       {/* 特許調査設定 */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
         <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">特許調査 CSV列名設定</h2>

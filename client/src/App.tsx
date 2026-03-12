@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical } from "lucide-react";
+import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, Download, X } from "lucide-react";
+import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { initDb, getSessions, SessionData, deleteSession } from "./lib/db";
+import { apiCheckUpdate, getDownloadUrl } from "./lib/api";
+import type { UpdateInfoResponse } from "./types/api";
 
 import PersonasScreen from './components/PersonasScreen';
 import TasksScreen from './components/TasksScreen';
@@ -15,6 +19,8 @@ function App() {
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfoResponse | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -27,6 +33,13 @@ function App() {
       console.error("Failed to init database", err);
       setDbError(String(err));
     });
+
+    // 起動時にアップデート確認 (失敗しても無視)
+    getVersion().then(ver =>
+      apiCheckUpdate(ver, 'windows')
+    ).then(info => {
+      if (info.has_update) setUpdateInfo(info);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -143,7 +156,33 @@ function App() {
       </nav>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-gray-50">
+      <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+        {/* アップデートバナー */}
+        {updateInfo && !updateDismissed && (
+          <div className="flex items-center gap-3 px-4 py-2 bg-blue-600 text-white text-sm shrink-0">
+            <Download size={15} className="shrink-0" />
+            <span className="flex-1">
+              新しいバージョン <strong>v{updateInfo.latest_version}</strong> が利用できます。
+              {updateInfo.release_notes && (
+                <span className="ml-2 text-blue-200">{updateInfo.release_notes}</span>
+              )}
+            </span>
+            <button
+              onClick={() => openUrl(getDownloadUrl(updateInfo.download_url)).catch(() => {})}
+              className="px-3 py-1 bg-white text-blue-700 rounded-md font-semibold hover:bg-blue-50 transition-colors shrink-0"
+            >
+              ダウンロード
+            </button>
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              className="p-1 hover:bg-blue-500 rounded transition-colors shrink-0"
+              title="閉じる"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto">
         <Routes>
           <Route path="/" element={<SetupScreen />} />
           <Route path="/discussion/:sessionId" element={<DiscussionScreen />} />
@@ -153,6 +192,7 @@ function App() {
           <Route path="/patent" element={<PatentResearchScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />
         </Routes>
+        </div>
       </main>
     </div>
   );

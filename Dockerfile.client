@@ -1,0 +1,76 @@
+# Dockerfile.client
+# ==================
+# Tauri クライアントのビルド環境 (Ubuntu 22.04)
+#
+# 対応ターゲット:
+#   Linux  : x86_64-unknown-linux-gnu  → .deb / .AppImage
+#   Windows: x86_64-pc-windows-gnu     → .exe (MinGW 経由)
+#
+# 使い方: build-client.sh を参照
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/root/.cargo/bin:$PATH"
+# Cargo のソースキャッシュをコンテナ内に保持 (再ビルド高速化)
+ENV CARGO_HOME="/root/.cargo"
+
+# ----------------------------------------------------------------
+# システム依存パッケージ
+# ----------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # 基本ビルドツール
+    curl wget git ca-certificates build-essential pkg-config \
+    libssl-dev \
+    # Linux ネイティブビルド用 (WebKitGTK 等)
+    libwebkit2gtk-4.1-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    patchelf \
+    # AppImage 生成用
+    squashfs-tools fuse libfuse2 \
+    # Windows クロスコンパイル用 (MinGW-w64)
+    gcc-mingw-w64-x86-64 \
+    binutils-mingw-w64-x86-64 \
+    # Windows インストーラー生成 (NSIS)
+    nsis \
+    # その他ユーティリティ
+    file unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# ----------------------------------------------------------------
+# Node.js 20 LTS
+# ----------------------------------------------------------------
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
+
+# ----------------------------------------------------------------
+# Rust (stable)
+# ----------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain stable --profile minimal \
+    && rustup --version && cargo --version
+
+# ----------------------------------------------------------------
+# Rust クロスコンパイルターゲットの追加
+# ----------------------------------------------------------------
+RUN rustup target add x86_64-pc-windows-gnu   # Windows (MinGW)
+RUN rustup target add x86_64-unknown-linux-gnu # Linux (明示)
+
+# ----------------------------------------------------------------
+# MinGW ツールチェーンのリンカー設定
+# ----------------------------------------------------------------
+RUN mkdir -p /root/.cargo && printf '\
+[target.x86_64-pc-windows-gnu]\n\
+linker = "x86_64-w64-mingw32-gcc"\n\
+ar = "x86_64-w64-mingw32-ar"\n\
+' >> /root/.cargo/config.toml
+
+WORKDIR /build
+
+# ビルド時にマウントされたソースで作業する想定
+# docker run --rm -v $(pwd)/client:/build/client ... image bash build-inside.sh
+CMD ["bash"]

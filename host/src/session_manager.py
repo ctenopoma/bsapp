@@ -49,6 +49,10 @@ class SessionMemory:
             "theme": self.current_theme,
             "summary": summary_text,
         })
+        # 過去テーマの要約をエージェントへ渡せるよう summary_memory を更新する
+        self.summary_memory = "\n\n".join(
+            f"[{s['theme']}]\n{s['summary']}" for s in self.summaries
+        )
         self.current_theme_index += 1
         self.turn_count_in_theme = 0
 

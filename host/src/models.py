@@ -168,6 +168,18 @@ class HealthResponse(BaseModel):
 
 
 # -------------------------------------------------------------------
+# アップデート API
+# -------------------------------------------------------------------
+class UpdateInfoResponse(BaseModel):
+    latest_version: str
+    current_version: str
+    has_update: bool
+    release_notes: str = ""
+    download_url: str = ""   # 相対パス (/api/update/download/filename)
+    filename: str = ""
+
+
+# -------------------------------------------------------------------
 # RAG API
 # -------------------------------------------------------------------
 class RagInitRequest(BaseModel):

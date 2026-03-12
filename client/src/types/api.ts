@@ -98,6 +98,16 @@ export interface HealthResponse {
   llm_error?: string;
 }
 
+// アップデート API
+export interface UpdateInfoResponse {
+  latest_version: string;
+  current_version: string;
+  has_update: boolean;
+  release_notes: string;
+  download_url: string;   // 相対パス (/api/update/download/filename)
+  filename: string;
+}
+
 // RAG API Requests
 export interface RagInitRequest {
   tag: string;

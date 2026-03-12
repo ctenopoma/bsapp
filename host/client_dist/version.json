@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0",
+  "release_notes": "初回リリース",
+  "windows": {
+    "filename": "client_0.1.0_x64-setup.exe",
+    "url": "/api/update/download/client_0.1.0_x64-setup.exe"
+  },
+  "linux": {
+    "filename": "client_0.1.0_amd64.AppImage",
+    "url": "/api/update/download/client_0.1.0_amd64.AppImage"
+  }
+}

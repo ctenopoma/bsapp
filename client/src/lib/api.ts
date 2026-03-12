@@ -8,6 +8,7 @@ import {
   SessionEndResponse,
   AppSettings,
   HealthResponse,
+  UpdateInfoResponse,
   RagInitRequest,
   RagInitResponse,
   RagAddRequest,
@@ -97,6 +98,16 @@ export function apiRagStatus(jobId: string): Promise<RagStatusResponse> {
   return request(`/api/rag/status/${jobId}`);
 }
 export const apiGetRagStatus = apiRagStatus;
+
+// アップデート確認 API
+export function apiCheckUpdate(currentVersion: string, platform: string = 'windows'): Promise<UpdateInfoResponse> {
+  return request(`/api/update/info?current=${encodeURIComponent(currentVersion)}&platform=${platform}`);
+}
+
+// インストーラーの絶対ダウンロードURLを構築する
+export function getDownloadUrl(relativePath: string): string {
+  return `${BASE_URL}${relativePath}`;
+}
 
 // 特許調査 API
 export function apiPatentAnalyze(req: PatentAnalyzeRequest): Promise<PatentAnalyzeResponse> {
