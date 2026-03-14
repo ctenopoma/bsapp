@@ -277,6 +277,52 @@ def select_persona(active_personas, session):
 | `max_history_tokens` | 50000 | これを超えると古い履歴を圧縮 (0=無制限) |
 | `recent_history_count` | 5 | 圧縮せず保持する直近の会話数 |
 
+### RAG種別を追加する
+
+新しい RAG バックエンドをペルソナに割り当て可能な「種別」として追加できます。
+
+#### ステップ 1: 種別を Settings に登録する
+
+`host/settings.json` を直接編集します。
+
+```json
+{
+  "available_rag_types": [
+    { "id": "qdrant", "name": "Qdrant (ベクトル検索)", "description": "Qdrantを使ったベクトル類似検索" },
+    { "id": "my_rag",  "name": "My RAG",               "description": "独自RAGバックエンド" }
+  ]
+}
+```
+
+> **注意:** `id` はシステム内部で使用されます。一度ペルソナに割り当てた後に変更すると、
+> そのペルソナの RAG 設定が実行時に無視されます（エラーにはなりません）。
+
+#### ステップ 2: Host に処理を実装する
+
+`host/src/workflow/input_builder.py` の RAG 分岐に `elif` を追加します。
+
+```python
+# input_builder.py の RAG取得セクション
+
+if rag_type == "qdrant":
+    rag_context = rag_manager.search_context(
+        tag=persona.rag_config.tag,
+        query=session.current_theme,
+    )
+elif rag_type == "my_rag":
+    # 独自 RAG の検索ロジックをここに実装
+    rag_context = my_rag_search(tag=persona.rag_config.tag, query=session.current_theme)
+```
+
+それ以外の変更は不要です。Client 側は Settings に登録された種別を
+自動的にドロップダウンに表示します。
+
+#### 実行時の種別不一致について
+
+ペルソナに設定された `rag_type` が Host の `available_rag_types` に存在しない場合、
+または `input_builder.py` に対応する処理がない場合、RAG はスキップされます
+（rag_context が空になるだけで、ディスカッションは継続します）。
+
 ### 特許調査ワークフローを変える
 
 `workflow/patent/analyzer.py` と `workflow/patent/summarizer.py` を編集します。

@@ -52,13 +52,21 @@ def build_agent_input(
 
     # ------------------------------------------------------------------
     # RAG取得 (ペルソナの rag_config に基づく)
+    # rag_type に応じて異なる実装を呼び分ける。
+    # ホストに存在しない種別が指定されていた場合はスキップ (不一致は実行時に無視)。
     # ------------------------------------------------------------------
     rag_context = ""
     if persona.rag_config and persona.rag_config.enabled and persona.rag_config.tag:
-        rag_context = rag_manager.search_context(
-            tag=persona.rag_config.tag,
-            query=session.current_theme,
-        )
+        rag_type = persona.rag_config.rag_type or "qdrant"
+        if rag_type == "qdrant":
+            rag_context = rag_manager.search_context(
+                tag=persona.rag_config.tag,
+                query=session.current_theme,
+            )
+        # 将来的に他のRAG種別を追加する場合はここに elif を追加:
+        # elif rag_type == "other_rag":
+        #     rag_context = other_rag_search(...)
+        # 不明な種別は無視してRAGをスキップ
 
     # ------------------------------------------------------------------
     # AgentInput 組み立て

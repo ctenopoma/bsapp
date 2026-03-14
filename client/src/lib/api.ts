@@ -14,6 +14,7 @@ import {
   RagAddRequest,
   RagAddResponse,
   RagStatusResponse,
+  RagTypesResponse,
   PatentAnalyzeRequest,
   PatentAnalyzeResponse,
   PatentSummaryRequest,
@@ -98,6 +99,10 @@ export function apiRagStatus(jobId: string): Promise<RagStatusResponse> {
   return request(`/api/rag/status/${jobId}`);
 }
 export const apiGetRagStatus = apiRagStatus;
+
+export function apiGetRagTypes(): Promise<RagTypesResponse> {
+  return request('/api/rag/types');
+}
 
 // アップデート確認 API
 export function apiCheckUpdate(currentVersion: string, platform: string = 'windows'): Promise<UpdateInfoResponse> {

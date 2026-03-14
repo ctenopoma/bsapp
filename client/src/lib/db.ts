@@ -16,12 +16,19 @@ async function getDb(): Promise<Database> {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       role TEXT NOT NULL,
-      pre_info TEXT NOT NULL DEFAULT ''
+      pre_info TEXT NOT NULL DEFAULT '',
+      rag_config TEXT NOT NULL DEFAULT ''
     )
   `);
   // マイグレーション: pre_info カラムが存在しない場合は追加
   try {
     await _db.execute(`ALTER TABLE personas ADD COLUMN pre_info TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // カラムが既に存在する場合は無視
+  }
+  // マイグレーション: rag_config カラムが存在しない場合は追加
+  try {
+    await _db.execute(`ALTER TABLE personas ADD COLUMN rag_config TEXT NOT NULL DEFAULT ''`);
   } catch {
     // カラムが既に存在する場合は無視
   }
@@ -121,22 +128,31 @@ export async function saveSessionConfig(key: string, value: string): Promise<voi
 
 export async function getPersonas(): Promise<Persona[]> {
   const db = await getDb();
-  return db.select<Persona[]>('SELECT id, name, role, pre_info FROM personas ORDER BY rowid');
+  const rows = await db.select<{ id: string; name: string; role: string; pre_info: string; rag_config: string }[]>(
+    'SELECT id, name, role, pre_info, rag_config FROM personas ORDER BY rowid'
+  );
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    pre_info: r.pre_info,
+    rag_config: r.rag_config ? JSON.parse(r.rag_config) : undefined,
+  }));
 }
 
 export async function addPersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'INSERT INTO personas (id, name, role, pre_info) VALUES ($1, $2, $3, $4)',
-    [p.id, p.name, p.role, p.pre_info ?? '']
+    'INSERT INTO personas (id, name, role, pre_info, rag_config) VALUES ($1, $2, $3, $4, $5)',
+    [p.id, p.name, p.role, p.pre_info ?? '', p.rag_config ? JSON.stringify(p.rag_config) : '']
   );
 }
 
 export async function updatePersona(p: Persona): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'UPDATE personas SET name=$1, role=$2, pre_info=$3 WHERE id=$4',
-    [p.name, p.role, p.pre_info ?? '', p.id]
+    'UPDATE personas SET name=$1, role=$2, pre_info=$3, rag_config=$4 WHERE id=$5',
+    [p.name, p.role, p.pre_info ?? '', p.rag_config ? JSON.stringify(p.rag_config) : '', p.id]
   );
 }
 

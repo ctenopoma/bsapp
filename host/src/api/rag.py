@@ -2,6 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 
+from ..app_settings import get_settings
+
 router = APIRouter()
 
 
@@ -12,6 +14,13 @@ class RagAddRequest(BaseModel):
 
 class RagInitRequest(BaseModel):
     tag: str
+
+
+@router.get("/types")
+def get_rag_types():
+    """利用可能なRAG種別の一覧を返す。host の settings.json で管理される。"""
+    settings = get_settings()
+    return {"types": [t.model_dump() for t in settings.available_rag_types]}
 
 
 @router.post("/init")

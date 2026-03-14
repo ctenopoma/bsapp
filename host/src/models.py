@@ -3,11 +3,21 @@ from typing import List, Optional, Literal
 
 
 # -------------------------------------------------------------------
+# RAG種別 (ホスト側で設定可能)
+# -------------------------------------------------------------------
+class AvailableRagType(BaseModel):
+    id: str           # 種別ID (例: "qdrant")
+    name: str         # 表示名 (例: "Qdrant (ベクトル検索)")
+    description: str = ""
+
+
+# -------------------------------------------------------------------
 # RAG設定 (ペルソナごとに持つ)
 # -------------------------------------------------------------------
 class RagConfig(BaseModel):
     enabled: bool = False
-    tag: Optional[str] = None  # 使用するRAGコレクションのタグ名
+    tag: Optional[str] = None      # 使用するRAGコレクションのタグ名
+    rag_type: Optional[str] = None # RAGの種別ID (例: "qdrant")
 
 
 # -------------------------------------------------------------------
@@ -126,6 +136,8 @@ class AppSettings(BaseModel):
     summary_prompt_template: str = "" # 空=prompt_builder.pyのデフォルト値を使用
     max_history_tokens: int = 50000   # 会話履歴の最大トークン数 (0=無制限)
     recent_history_count: int = 5     # 圧縮しない直近の会話数
+    # 利用可能なRAG種別 (ホスト管理者がsettings.jsonで明示的に設定する。未設定時は空=RAG選択不可)
+    available_rag_types: List[AvailableRagType] = Field(default_factory=list)
     # 特許調査設定
     patent_company_column: str = "出願人"   # CSV内の企業名列名
     patent_content_column: str = "請求項"  # CSV内の特許内容列名

@@ -1,7 +1,59 @@
 import { useState, useEffect, useRef } from 'react';
-import { Persona } from '../types/api';
+import { Persona, AvailableRagType, RagConfig } from '../types/api';
 import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/db';
+import { apiGetRagTypes } from '../lib/api';
 import { Plus, Trash2, Edit2, Save, X } from 'lucide-react';
+
+const SELECT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white";
+const INPUT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
+
+function RagSection({
+  ragConfig,
+  onChange,
+  availableTypes,
+  typesLoaded,
+}: {
+  ragConfig: RagConfig | undefined;
+  onChange: (cfg: RagConfig | undefined) => void;
+  availableTypes: AvailableRagType[];
+  typesLoaded: boolean;
+}) {
+  const selectedType = ragConfig?.rag_type ?? '';
+
+  const handleTypeChange = (typeId: string) => {
+    if (!typeId) {
+      onChange(undefined);
+    } else {
+      onChange({ enabled: true, rag_type: typeId, tag: ragConfig?.tag ?? '' });
+    }
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 flex flex-col gap-2">
+      <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">RAG設定</label>
+      <select
+        value={selectedType}
+        onChange={e => handleTypeChange(e.target.value)}
+        className={SELECT_CLS}
+      >
+        <option value="">RAGなし</option>
+        {availableTypes.map(t => (
+          <option key={t.id} value={t.id}>{t.name}</option>
+        ))}
+        {!typesLoaded && <option disabled value="">（ホスト未接続 - 選択不可）</option>}
+        {typesLoaded && availableTypes.length === 0 && <option disabled value="">（RAG種別未設定）</option>}
+      </select>
+      {selectedType && (
+        <input
+          placeholder="RAGコレクションのタグ名"
+          value={ragConfig?.tag ?? ''}
+          onChange={e => onChange({ enabled: true, rag_type: selectedType, tag: e.target.value })}
+          className={INPUT_CLS}
+        />
+      )}
+    </div>
+  );
+}
 
 export default function PersonasScreen() {
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -9,7 +61,9 @@ export default function PersonasScreen() {
   const [editForm, setEditForm] = useState<Partial<Persona>>({});
   const createRoleRef = useRef<HTMLTextAreaElement | null>(null);
   const editRoleRef = useRef<HTMLTextAreaElement | null>(null);
-  
+  const [availableRagTypes, setAvailableRagTypes] = useState<AvailableRagType[]>([]);
+  const [ragTypesLoaded, setRagTypesLoaded] = useState(false);
+
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '', pre_info: '' });
 
@@ -28,8 +82,19 @@ export default function PersonasScreen() {
     }
   };
 
+  const loadRagTypes = async () => {
+    try {
+      const res = await apiGetRagTypes();
+      setAvailableRagTypes(res.types);
+      setRagTypesLoaded(true);
+    } catch {
+      // ホスト未接続でも graceful に動作する
+    }
+  };
+
   useEffect(() => {
     loadPersonas();
+    loadRagTypes();
   }, []);
 
   useEffect(() => {
@@ -44,6 +109,7 @@ export default function PersonasScreen() {
       name: createForm.name,
       role: createForm.role,
       pre_info: createForm.pre_info ?? '',
+      rag_config: createForm.rag_config,
     };
     await addPersona(newPersona);
     setIsCreating(false);
@@ -69,7 +135,7 @@ export default function PersonasScreen() {
     <div className="p-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900">Manage Personas</h1>
-        <button 
+        <button
           onClick={() => setIsCreating(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
         >
@@ -82,7 +148,7 @@ export default function PersonasScreen() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
           <h2 className="text-lg font-semibold mb-4">Create New Persona</h2>
           <div className="grid gap-4">
-            <input 
+            <input
               placeholder="Name (e.g., Critic Engineer)"
               value={createForm.name}
               onChange={e => setCreateForm({...createForm, name: e.target.value})}
@@ -106,6 +172,12 @@ export default function PersonasScreen() {
               rows={3}
               className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all resize-y font-mono text-sm"
             />
+            <RagSection
+              ragConfig={createForm.rag_config}
+              onChange={cfg => setCreateForm({...createForm, rag_config: cfg})}
+              availableTypes={availableRagTypes}
+              typesLoaded={ragTypesLoaded}
+            />
             <div className="flex gap-3 justify-end mt-2">
               <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancel</button>
               <button onClick={handleCreate} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Save</button>
@@ -119,7 +191,7 @@ export default function PersonasScreen() {
           <div key={p.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-3 transition-shadow hover:shadow-md">
             {editingId === p.id ? (
               <div className="grid gap-3">
-                <input 
+                <input
                   value={editForm.name}
                   onChange={e => setEditForm({...editForm, name: e.target.value})}
                   className="w-full border border-gray-300 rounded-lg p-2"
@@ -141,6 +213,12 @@ export default function PersonasScreen() {
                   rows={3}
                   className="w-full border border-gray-300 rounded-lg p-2 resize-y font-mono text-sm"
                 />
+                <RagSection
+                  ragConfig={editForm.rag_config}
+                  onChange={cfg => setEditForm({...editForm, rag_config: cfg})}
+                  availableTypes={availableRagTypes}
+                  typesLoaded={ragTypesLoaded}
+                />
                 <div className="flex justify-end gap-2 mt-2">
                   <button onClick={() => setEditingId(null)} className="flex items-center gap-1 text-gray-600 hover:bg-gray-100 px-3 py-1 rounded-md"><X size={16}/> Cancel</button>
                   <button onClick={handleUpdate} className="flex items-center gap-1 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded-md mb-0"><Save size={16}/> Save</button>
@@ -154,6 +232,13 @@ export default function PersonasScreen() {
                     <p className="text-sm font-medium text-blue-600 mt-1">{p.role}</p>
                     {p.pre_info && (
                       <p className="text-xs text-gray-500 mt-2 font-mono whitespace-pre-wrap bg-gray-50 rounded-lg p-2 border border-gray-100">{p.pre_info}</p>
+                    )}
+                    {p.rag_config?.enabled && p.rag_config.rag_type && (
+                      <div className="mt-2 inline-flex items-center gap-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                        <span className="font-semibold">RAG:</span>
+                        <span>{availableRagTypes.find(t => t.id === p.rag_config!.rag_type)?.name ?? p.rag_config.rag_type}</span>
+                        {p.rag_config.tag && <span className="text-purple-500">[{p.rag_config.tag}]</span>}
+                      </div>
                     )}
                   </div>
                   <div className="flex gap-2 ml-4 shrink-0">

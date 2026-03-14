@@ -1,6 +1,17 @@
 export interface RagConfig {
   enabled: boolean;
   tag?: string;
+  rag_type?: string; // RAGの種別ID (例: "qdrant")
+}
+
+export interface AvailableRagType {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface RagTypesResponse {
+  types: AvailableRagType[];
 }
 
 export interface Persona {
@@ -86,6 +97,8 @@ export interface AppSettings {
   summary_prompt_template: string;
   max_history_tokens: number;
   recent_history_count: number;
+  // 利用可能なRAG種別
+  available_rag_types: AvailableRagType[];
   // 特許調査設定
   patent_company_column: string;
   patent_content_column: string;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AppSettings, HealthResponse } from '../types/api';
 import { apiGetSettings, apiSaveSettings, apiGetHealth } from '../lib/api';
 import { SlidersHorizontal, Save, RotateCcw, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
@@ -20,31 +20,66 @@ const TEXTAREA_CLS = `${INPUT_CLS} resize-y font-mono`;
 
 type HealthStatus = 'idle' | 'checking' | 'done';
 
+const DEFAULT_FORM: AppSettings = {
+  turns_per_theme: 5,
+  default_output_format: "【発言者】{name}\n【主張】(1〜2文で主張を述べる)\n【根拠】(根拠や補足を1〜2文で)\n300字以内で記述してください。",
+  agent_prompt_template: "",
+  summary_prompt_template: "",
+  max_history_tokens: 50000,
+  recent_history_count: 5,
+  available_rag_types: [],
+  patent_company_column: '出願人',
+  patent_content_column: '発明の名称',
+  patent_date_column: '出願日',
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes('[Fetch Failed]')) {
+    return `${fallback} ホストが起動しているか確認してから再試行してください。`;
+  }
+
+  return message.replace(/^Error:\s*/, '') || fallback;
+}
+
 export default function SettingsScreen() {
-  const [form, setForm] = useState<AppSettings | null>(null);
+  const [form, setForm] = useState<AppSettings>(DEFAULT_FORM);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('idle');
   const [healthError, setHealthError] = useState('');
-
-  useEffect(() => {
-    apiGetSettings().then(setForm).catch(e => setError(String(e)));
-  }, []);
-
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const set = (key: keyof AppSettings, value: string | number) =>
-    setForm(prev => prev ? { ...prev, [key]: value } : prev);
+    setForm(prev => ({ ...prev, [key]: value }));
+
+  const loadSettings = async () => {
+    setLoadingSettings(true);
+    setError('');
+    try {
+      const settings = await apiGetSettings();
+      setForm(settings);
+      setSettingsLoaded(true);
+    } catch (e: unknown) {
+      setSettingsLoaded(false);
+      setError(getErrorMessage(e, 'ホスト設定の読込に失敗しました。'));
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
 
   const handleSave = async () => {
-    if (!form) return;
     try {
       setError('');
       const updated = await apiSaveSettings(form);
       setForm(updated);
+      setSettingsLoaded(true);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch (e: any) {
-      setError(e.message || '保存に失敗しました');
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, '保存に失敗しました。'));
     }
   };
 
@@ -55,20 +90,13 @@ export default function SettingsScreen() {
     try {
       const result = await apiGetHealth();
       setHealth(result);
+      await loadSettings();
       setHealthStatus('done');
-    } catch (e: any) {
-      setHealthError(e.message || '確認に失敗しました');
+    } catch (e: unknown) {
+      setHealthError(getErrorMessage(e, '接続確認に失敗しました。'));
       setHealthStatus('done');
     }
   };
-
-  if (!form) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        {error ? <span className="text-red-500">{error}</span> : 'Loading...'}
-      </div>
-    );
-  }
 
   return (
     <div className="p-8 max-w-3xl mx-auto flex flex-col gap-8 overflow-y-auto">
@@ -78,6 +106,11 @@ export default function SettingsScreen() {
           Settings
         </h1>
         <p className="text-gray-500 mt-2 text-sm">変更はサーバー再起動後も settings.json に保存されます。</p>
+        <p className="text-xs text-gray-500 mt-2">
+          {settingsLoaded
+            ? 'ホスト設定を読み込み済みです。'
+            : '初回表示ではホストへ自動接続しません。接続確認またはリロードでホスト設定を読み込みます。'}
+        </p>
       </div>
 
       {/* 接続確認 */}
@@ -87,11 +120,11 @@ export default function SettingsScreen() {
         <div className="flex items-center gap-4">
           <button
             onClick={handleHealthCheck}
-            disabled={healthStatus === 'checking'}
+            disabled={healthStatus === 'checking' || loadingSettings}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors"
           >
-            <RefreshCw size={15} className={healthStatus === 'checking' ? 'animate-spin' : ''} />
-            {healthStatus === 'checking' ? '確認中...' : '接続確認'}
+            <RefreshCw size={15} className={healthStatus === 'checking' || loadingSettings ? 'animate-spin' : ''} />
+            {healthStatus === 'checking' || loadingSettings ? '確認中...' : '接続確認'}
           </button>
           {healthStatus === 'done' && (
             <div className="flex flex-col gap-2 text-sm">
@@ -183,15 +216,20 @@ export default function SettingsScreen() {
 
       <div className="flex justify-end gap-3 pb-8">
         <button
-          onClick={() => apiGetSettings().then(setForm).catch(e => setError(String(e)))}
+          onClick={loadSettings}
+          disabled={loadingSettings}
           className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors border border-gray-200"
         >
-          <RotateCcw size={16} /> リロード
+          <RotateCcw size={16} className={loadingSettings ? 'animate-spin' : ''} />
+          {loadingSettings ? '読込中...' : 'リロード'}
         </button>
         <button
           onClick={handleSave}
+          disabled={!settingsLoaded}
           className={`flex items-center gap-2 px-6 py-2 rounded-lg font-semibold transition-colors shadow-sm ${
-            saved ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+            saved
+              ? 'bg-green-600 text-white'
+              : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-300 disabled:hover:bg-blue-300'
           }`}
         >
           <Save size={16} /> {saved ? '保存しました' : '保存'}

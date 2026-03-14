@@ -7,5 +7,8 @@
   "recent_history_count": 5,
   "patent_company_column": "出願人",
   "patent_content_column": "請求項",
-  "patent_date_column": "出願日"
+  "patent_date_column": "出願日",
+  "available_rag_types": [
+    { "id": "qdrant", "name": "Qdrant (ベクトル検索)", "description": "Qdrantを使ったベクトル類似検索" }
+  ]
 }
