@@ -1,8 +1,8 @@
 import urllib.request
 import urllib.error
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from ..models import AppSettings, HealthResponse
-from ..app_settings import get_settings, update_settings, get_llm_config
+from ..app_settings import get_settings, update_settings, get_llm_config, get_max_history_tokens_limit
 
 router = APIRouter()
 
@@ -16,6 +16,16 @@ def get_app_settings():
 @router.put("/", response_model=AppSettings)
 def save_app_settings(settings: AppSettings):
     """アプリ設定を上書きする（settings.json に永続化）。"""
+    limit = get_max_history_tokens_limit()
+    if limit > 0 and settings.max_history_tokens > limit:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"max_history_tokens ({settings.max_history_tokens}) が"
+                f"モデルの上限 ({limit}) を超えています。"
+                f"{limit} 以下の値を設定してください（0 = サーバー上限で自動制限）。"
+            ),
+        )
     return update_settings(settings)
 
 

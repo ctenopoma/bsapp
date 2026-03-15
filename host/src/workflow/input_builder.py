@@ -17,7 +17,7 @@ import random
 from ..models import Persona, AgentInput
 from ..session_manager import SessionMemory
 from ..rag_manager import rag_manager
-from ..app_settings import get_settings
+from ..app_settings import get_settings, get_max_history_tokens_limit
 from .history_compressor import compress_history
 
 
@@ -83,12 +83,21 @@ def build_agent_input(
     # ------------------------------------------------------------------
     # 会話履歴の取得と圧縮
     # max_history_tokens を超える場合、recent_history_count 件より前を要約圧縮する
+    # モデルの真の上限 (MAX_HISTORY_TOKENS_LIMIT) を超えないようキャップもかける
     # ------------------------------------------------------------------
     settings = get_settings()
-    history = compress_history(
+    limit = get_max_history_tokens_limit()
+    effective_max = settings.max_history_tokens
+    if limit > 0:
+        if effective_max <= 0:
+            # クライアントが無制限設定した場合もハードリミットでキャップ
+            effective_max = limit
+        else:
+            effective_max = min(effective_max, limit)
+    history, history_compressed = compress_history(
         history=session.history,
         recent_count=settings.recent_history_count,
-        max_tokens=settings.max_history_tokens,
+        max_tokens=effective_max,
     )
 
     return AgentInput(
@@ -99,6 +108,7 @@ def build_agent_input(
         rag_context=rag_context,
         pre_info=pre_info,
         previous_summaries=session.summary_memory,
+        history_compressed=history_compressed,
         output_format=(
             output_format
             or (session.current_theme_config.output_format if session.current_theme_config else "")

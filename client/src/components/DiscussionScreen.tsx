@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getMessages, addMessage, getSessionConfig } from '../lib/db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
-import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check } from 'lucide-react';
+import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
@@ -62,7 +62,12 @@ export default function DiscussionScreen() {
             theme = turnRes.theme || 'Theme';
             if (turnRes.agent_name && turnRes.message) {
               const current = await getMessages(sessionId);
-              await addMessage(sessionId, theme, turnRes.agent_name, turnRes.message, current.length);
+              // 履歴圧縮通知を先に挿入
+              if (turnRes.history_compressed) {
+                await addMessage(sessionId, theme, '[会話圧縮]', '会話履歴が長くなったため、古い部分を要約圧縮しました。', current.length);
+              }
+              const afterCompress = turnRes.history_compressed ? await getMessages(sessionId) : current;
+              await addMessage(sessionId, theme, turnRes.agent_name, turnRes.message, afterCompress.length);
               setMessages(await getMessages(sessionId));
             }
             break;
@@ -242,6 +247,16 @@ export default function DiscussionScreen() {
 
           {messages.map((m, idx) => {
             const isSystem = m.agent_name === 'Summary';
+            const isCompressNotice = m.agent_name === '[会話圧縮]';
+
+            if (isCompressNotice) {
+              return (
+                <div key={m.id} className="my-2 mx-auto w-full max-w-3xl flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-xs">
+                  <Minimize2 size={14} className="shrink-0" />
+                  <span>{m.content}</span>
+                </div>
+              );
+            }
 
             if (isSystem) {
               return (

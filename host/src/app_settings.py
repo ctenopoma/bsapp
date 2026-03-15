@@ -86,3 +86,12 @@ def update_settings(new_settings: AppSettings) -> AppSettings:
     _settings = new_settings
     SETTINGS_FILE.write_text(new_settings.model_dump_json(indent=2), encoding="utf-8")
     return _settings
+
+
+def get_max_history_tokens_limit() -> int:
+    """モデルの真の上限トークン数を返す (0=無制限)。
+
+    .env の MAX_HISTORY_TOKENS_LIMIT で設定する。
+    クライアントの max_history_tokens はこの値を超えられない。
+    """
+    return int(os.environ.get("MAX_HISTORY_TOKENS_LIMIT", "0"))

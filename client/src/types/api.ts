@@ -75,6 +75,7 @@ export interface TurnStatusResponse {
   theme?: string;
   is_theme_end?: boolean;
   all_themes_done?: boolean;
+  history_compressed?: boolean;
   error_msg?: string;
 }
 

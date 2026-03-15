@@ -1,0 +1,6 @@
+[profile.dev]
+# More codegen units = more parallel compilation in dev builds
+codegen-units = 256
+
+[profile.release]
+codegen-units = 16

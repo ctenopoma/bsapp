@@ -55,6 +55,7 @@ class AgentInput(BaseModel):
     pre_info: str = ""           # セッション共通の事前情報
     previous_summaries: str = ""   # これまでの要約を結合したもの
     output_format: str = ""      # 出力フォーマット指定 (空の場合はデフォルト挙動)
+    history_compressed: bool = False  # このターンで履歴圧縮が発生したか
 
 
 # -------------------------------------------------------------------
@@ -91,6 +92,7 @@ class TurnStatusResponse(BaseModel):
     theme: Optional[str] = None
     is_theme_end: Optional[bool] = None
     all_themes_done: Optional[bool] = None
+    history_compressed: Optional[bool] = None  # 履歴圧縮が発生したか
     error_msg: Optional[str] = None
 
 

@@ -160,9 +160,13 @@ export default function SettingsScreen() {
         <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">会話履歴設定</h2>
         <p className="text-xs text-gray-500">
           エージェントに渡す会話履歴のトークン上限と、圧縮しない直近の件数を設定します。
-          上限を超えた古い履歴はLLMで要約圧縮されます（0=無制限）。
+          上限を超えた古い履歴はLLMで要約圧縮され、チャット画面に通知が表示されます（0=無制限）。
         </p>
-        <Field label="会話履歴の最大トークン数" hint="（0=無制限）">
+        <p className="text-xs text-amber-600">
+          サーバー側で <code className="bg-amber-50 px-1 rounded">MAX_HISTORY_TOKENS_LIMIT</code>（.env）が設定されている場合、
+          その値を超える設定は保存時にエラーになります。また実行時も自動的に上限でキャップされます。
+        </p>
+        <Field label="会話履歴の最大トークン数" hint="（0=サーバー上限で自動制限）">
           <input className={INPUT_CLS} type="number" min="0"
             value={form.max_history_tokens}
             onChange={e => set('max_history_tokens', parseInt(e.target.value) || 0)} />

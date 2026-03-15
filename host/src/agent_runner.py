@@ -168,6 +168,7 @@ class AgentRunner:
                 "message": message,
                 "theme": session.current_theme,
                 "is_theme_end": is_theme_end,
+                "history_compressed": agent_input.history_compressed,
             }
 
         except Exception as e:

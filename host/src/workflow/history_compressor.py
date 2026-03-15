@@ -12,7 +12,7 @@ history_compressor.py
 """
 
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from langchain_core.prompts import PromptTemplate
 
@@ -49,7 +49,7 @@ def compress_history(
     recent_count: int,
     max_tokens: int,
     llm=None,
-) -> List[MessageHistory]:
+) -> Tuple[List[MessageHistory], bool]:
     """会話履歴が max_tokens を超える場合、古い部分を要約圧縮して返す。
 
     Parameters
@@ -65,16 +65,16 @@ def compress_history(
 
     Returns
     -------
-    List[MessageHistory]
-        必要に応じて圧縮された会話履歴。
+    Tuple[List[MessageHistory], bool]
+        (必要に応じて圧縮された会話履歴, 圧縮が発生したか)。
     """
     # max_tokens=0 は無制限
     if max_tokens <= 0 or not history:
-        return history
+        return history, False
 
     full_text = history_to_text(history)
     if estimate_tokens(full_text) <= max_tokens:
-        return history
+        return history, False
 
     # 直近 recent_count 件は圧縮せず保持
     if recent_count > 0 and len(history) > recent_count:
@@ -82,15 +82,15 @@ def compress_history(
         older = list(history[:-recent_count])
     else:
         # 全件が直近扱い → 圧縮不可、そのまま返す
-        return history
+        return history, False
 
     if not older:
-        return recent
+        return recent, False
 
     # 古い部分が圧縮不要ならそのまま結合
     older_text = history_to_text(older)
     if estimate_tokens(older_text) == 0:
-        return recent
+        return recent, False
 
     # LLMで古い部分を要約
     if llm is None:
@@ -120,4 +120,4 @@ def compress_history(
         turn_order=-1,
     )
 
-    return [summary_msg] + recent
+    return [summary_msg] + recent, True
