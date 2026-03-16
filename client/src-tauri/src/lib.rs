@@ -4,14 +4,32 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-/// ホスト(localhost)への通信がプロキシを経由しないよう NO_PROXY を設定する。
+/// 社内ホスト (localhost 等) への通信がプロキシを経由しないよう NO_PROXY を設定する。
 /// reqwest (tauri_plugin_http の内部実装) はクライアント生成時に NO_PROXY を参照する。
+/// NO_PROXY / no_proxy の両方から既存エントリを収集してマージする。
 fn setup_no_proxy() {
-    let no_proxy_hosts = "localhost,127.0.0.1";
-    let merged = match std::env::var("NO_PROXY") {
-        Ok(existing) if !existing.is_empty() => format!("{},{}", existing, no_proxy_hosts),
-        _ => no_proxy_hosts.to_string(),
-    };
+    let internal_hosts = ["localhost", "127.0.0.1"];
+
+    // 既存の NO_PROXY / no_proxy を両方読んで重複排除しながら収集
+    let mut hosts: Vec<String> = Vec::new();
+    for var in &["NO_PROXY", "no_proxy"] {
+        if let Ok(val) = std::env::var(var) {
+            for h in val.split(',') {
+                let h = h.trim().to_string();
+                if !h.is_empty() && !hosts.contains(&h) {
+                    hosts.push(h);
+                }
+            }
+        }
+    }
+    for h in &internal_hosts {
+        let s = h.to_string();
+        if !hosts.contains(&s) {
+            hosts.push(s);
+        }
+    }
+
+    let merged = hosts.join(",");
     std::env::set_var("NO_PROXY", &merged);
     std::env::set_var("no_proxy", &merged);
 }

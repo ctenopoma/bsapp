@@ -9,11 +9,30 @@ ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
 # プロキシをバイパスするホストを NO_PROXY / no_proxy に追加
-# 対象: クライアント←→ホスト (localhost) と ホスト←→LLM (LLM_IP)
+# 対象: クライアント←→ホスト (localhost)、ホスト←→LLM / Embedding / Rerank / Qdrant
 def _setup_no_proxy() -> None:
-    llm_ip = os.environ.get("LLM_IP", "127.0.0.1")
-    new_hosts = {"localhost", "127.0.0.1", llm_ip}
-    existing = {h.strip() for h in os.environ.get("NO_PROXY", "").split(",") if h.strip()}
+    from urllib.parse import urlparse
+
+    def _host_from_url(url: str) -> str:
+        """URL からホスト部分だけ返す。パース失敗時は空文字。"""
+        try:
+            return urlparse(url).hostname or ""
+        except Exception:
+            return ""
+
+    new_hosts: set[str] = {
+        "localhost",
+        "127.0.0.1",
+        os.environ.get("LLM_IP", "127.0.0.1"),
+        os.environ.get("EMBEDDING_IP", "127.0.0.1"),
+        os.environ.get("RERANK_IP", "127.0.0.1"),
+        _host_from_url(os.environ.get("QDRANT_URL", "http://localhost:6333")),
+    }
+    new_hosts.discard("")  # パース失敗の空文字を除外
+
+    # NO_PROXY / no_proxy どちらか存在する方をベースにマージ
+    existing_raw = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    existing = {h.strip() for h in existing_raw.split(",") if h.strip()}
     merged = ",".join(sorted(existing | new_hosts))
     os.environ["NO_PROXY"] = merged
     os.environ["no_proxy"] = merged
