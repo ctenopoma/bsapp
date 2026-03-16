@@ -64,30 +64,39 @@ host/src/
 
 **何ができる**: 「次に誰が発言するか」のロジックを変更する
 
-```python
-def select_persona(personas, session) -> Persona:
-    # デフォルト: ランダム選択
-    return random.choice(personas)
-```
-
-**カスタマイズ例:**
+ファイル冒頭の定数を変えるだけで切り替えられる:
 
 ```python
-# ラウンドロビン (順番に全員が発言)
-def select_persona(personas, session) -> Persona:
-    idx = session.turn_count_in_theme % len(personas)
-    return personas[idx]
+# persona_selector.py
+PERSONA_SELECTION_STRATEGY = "round_robin"  # ← ここを変更
 ```
 
+| 値 | 動作 |
+|---|---|
+| `"random"` | 完全ランダム |
+| `"round_robin"` | ターン順に全ペルソナを均等巡回 |
+| `"role_first"` | 最初のターンだけ「リーダー」ロールを優先、以降はラウンドロビン |
+
+**新しいストラテジーを追加する場合:**
+
 ```python
-# 最初のターンはリーダーが発言
-def select_persona(personas, session) -> Persona:
-    if session.turn_count_in_theme == 0:
-        leaders = [p for p in personas if "リーダー" in p.role]
-        if leaders:
-            return leaders[0]
-    return random.choice(personas)
+# 1. PersonaStrategy に値を追加
+class PersonaStrategy(str, Enum):
+    MY_STRATEGY = "my_strategy"
+
+# 2. 選択関数を実装
+def _select_my_strategy(personas, session) -> Persona:
+    ...
+
+# 3. _STRATEGY_MAP に登録
+_STRATEGY_MAP = {
+    ...
+    PersonaStrategy.MY_STRATEGY: _select_my_strategy,
+}
 ```
+
+> **Note:** `session.last_persona_id` に直前のペルソナIDが入っているので、
+> 「前回と同じペルソナを避ける」といった実装に利用できる。テーマ切替時に自動リセット。
 
 ---
 
@@ -135,27 +144,29 @@ AGENT_PROMPT_TEMPLATE = """\
 
 **何ができる**: エージェントに渡す情報の内容を変更する
 
+タスク割り当て方法はファイル冒頭の定数で切り替えられる:
+
 ```python
-def build_agent_input(session, persona, output_format="") -> AgentInput:
-    ...
-    history=session.history[-5:],  # ← 参照する履歴件数
-    ...
+# input_builder.py
+TASK_SELECTION_STRATEGY = "round_robin"  # ← ここを変更
 ```
 
-**カスタマイズ例:**
+| 値 | 動作 |
+|---|---|
+| `"random"` | 完全ランダム |
+| `"round_robin"` | ターン順にタスクを均等巡回 |
+| `"role_match"` | ペルソナのロール名を含むタスクを優先、なければランダム |
+
+> **Note:** `session.last_task_id` に直前のタスクIDが入っているので、
+> 独自ストラテジーの実装に利用できる。テーマ切替時に自動リセット。
+
+**新しいストラテジーの追加方法はペルソナ選択と同じ手順**（`_TASK_STRATEGY_MAP` に登録）。
+
+会話履歴の渡し方・RAG検索クエリなど他の変更は従来通り `build_agent_input()` を直接編集:
 
 ```python
-# 履歴をより多く参照 (直近10件)
-history=session.history[-10:]
-
 # 現在のテーマの発言のみを履歴として渡す
 history=[m for m in session.history if m.theme == session.current_theme][-5:]
-
-# タスクを役割に応じて固定割り当て
-task_description = next(
-    (t.description for t in session.tasks if persona.role in t.description),
-    session.tasks[0].description if session.tasks else ""
-)
 ```
 
 ---
@@ -193,6 +204,12 @@ SUMMARY_PROMPT_TEMPLATE = """\
 {history}
 """
 ```
+
+使用可能な変数: `{theme}`, `{history}`, `{output_format}`
+（`{output_format}` はテーマに設定された出力フォーマット。省略しても動作する）
+
+> **Note:** 要約プロンプトは Personas 画面の「要約エージェント」カードから UI で編集できる。
+> Settings 画面の「要約プロンプト」フィールドと同じ値を操作している。
 
 ---
 
