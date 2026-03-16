@@ -19,42 +19,54 @@ import {
 import { AppSettings, PatentAnalyzeResponse } from '../types/api';
 
 // -------------------------------------------------------------------
-// CSV パーサー (UTF-8 / Shift-JIS 対応)
+// CSV パーサー (UTF-8 / Shift-JIS 対応、クォート内改行対応)
 // -------------------------------------------------------------------
+
+/**
+ * RFC 4180 準拠の CSV パーサー。
+ * クォートで囲まれたフィールド内の改行 (J-PlatPat の出願人欄など) を正しく処理する。
+ */
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = splitCSVRow(lines[0]);
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const cols = splitCSVRow(line);
+  const rows = _parseCSVRaw(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim());
+  const result: Record<string, string>[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    if (cols.every(c => c.trim() === '')) continue;
     const row: Record<string, string> = {};
-    headers.forEach((h, idx) => { row[h.trim()] = (cols[idx] ?? '').trim(); });
-    rows.push(row);
+    headers.forEach((h, idx) => { row[h] = (cols[idx] ?? '').trim(); });
+    result.push(row);
   }
-  return rows;
+  return result;
 }
 
-function splitCSVRow(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
+function _parseCSVRaw(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-      else { inQuotes = !inQuotes; }
-    } else if (ch === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i += 2; }  // エスケープ済みクォート
+        else { inQuotes = false; i++; }                     // クォート終了
+      } else {
+        cell += ch; i++;                                     // クォート内の任意文字 (改行含む)
+      }
     } else {
-      current += ch;
+      if (ch === '"') { inQuotes = true; i++; }
+      else if (ch === ',') { row.push(cell); cell = ''; i++; }
+      else if (ch === '\r' && text[i + 1] === '\n') { row.push(cell); cell = ''; rows.push(row); row = []; i += 2; }
+      else if (ch === '\n') { row.push(cell); cell = ''; rows.push(row); row = []; i++; }
+      else { cell += ch; i++; }
     }
   }
-  result.push(current);
-  return result;
+  row.push(cell);
+  if (row.length > 1 || row[0] !== '') rows.push(row);
+  return rows;
 }
 
 async function readFileAsText(file: File): Promise<string> {
