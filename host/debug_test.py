@@ -22,6 +22,10 @@ debug_test.py
 
 import sys
 import os
+import socket
+import json as _json
+import urllib.request
+import urllib.error
 import uuid as _uuid
 from unittest.mock import MagicMock
 
@@ -172,19 +176,109 @@ def build_real_agent_executor(llm):
     return real_agent_executor
 
 
+def _apply_no_proxy() -> None:
+    """
+    .env 読み込み後に呼ぶ。
+    LLM / Embedding / Rerank / Qdrant の各ホストを NO_PROXY / no_proxy に追加する。
+    main.py の _setup_no_proxy() と同等のロジック。
+    """
+    from urllib.parse import urlparse
+
+    def _host_from_url(url: str) -> str:
+        try:
+            return urlparse(url).hostname or ""
+        except Exception:
+            return ""
+
+    new_hosts: set[str] = {
+        "localhost", "127.0.0.1",
+        os.environ.get("LLM_IP", "127.0.0.1"),
+        os.environ.get("EMBEDDING_IP", "127.0.0.1"),
+        os.environ.get("RERANK_IP", "127.0.0.1"),
+        _host_from_url(os.environ.get("QDRANT_URL", "http://localhost:6333")),
+    }
+    new_hosts.discard("")
+    existing_raw = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    existing = {h.strip() for h in existing_raw.split(",") if h.strip()}
+    merged = ",".join(sorted(existing | new_hosts))
+    os.environ["NO_PROXY"] = merged
+    os.environ["no_proxy"] = merged
+
+
+def _diagnose_connection_error(host: str, port: int, error: Exception) -> None:
+    """
+    接続エラーの原因をステップごとに分析して出力する。
+    1. プロキシ環境変数の確認
+    2. DNS 解決テスト
+    3. TCP 接続テスト
+    4. エラー種別ごとのヒント表示
+    """
+    print("\n  --- 接続エラー分析 ---")
+
+    # 1. プロキシ環境変数
+    http_proxy  = os.environ.get("HTTP_PROXY")  or os.environ.get("http_proxy")  or ""
+    https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or ""
+    no_proxy    = os.environ.get("NO_PROXY")    or os.environ.get("no_proxy")    or ""
+    print(f"  HTTP_PROXY  : {http_proxy  or '(未設定)'}")
+    print(f"  HTTPS_PROXY : {https_proxy or '(未設定)'}")
+    print(f"  NO_PROXY    : {no_proxy    or '(未設定)'}")
+    if (http_proxy or https_proxy):
+        no_proxy_hosts = {h.strip() for h in no_proxy.split(",") if h.strip()}
+        if host not in no_proxy_hosts:
+            print(f"  ⚠ プロキシが設定されているが '{host}' が NO_PROXY に含まれていません")
+        else:
+            print(f"  ✓ '{host}' は NO_PROXY に登録されています")
+
+    # 2. DNS 解決テスト
+    print(f"\n  DNS 解決テスト: {host}")
+    try:
+        ip = socket.gethostbyname(host)
+        print(f"  ✓ {host} → {ip}")
+    except socket.gaierror as e:
+        print(f"  ✗ DNS 解決失敗: {e}")
+        print("    → LLM_IP をホスト名ではなく IP アドレスで指定するか、DNS を確認してください。")
+        return
+
+    # 3. TCP 接続テスト
+    print(f"\n  TCP 接続テスト: {host}:{port}")
+    try:
+        with socket.create_connection((host, port), timeout=3):
+            print(f"  ✓ TCP 接続成功")
+    except ConnectionRefusedError:
+        print(f"  ✗ 接続拒否 (Connection refused)")
+        print(f"    → LLM サーバーが起動していないか、ポートが違います。")
+        print(f"    → Ollama の場合: `ollama serve` で起動し、ポート {port} を確認してください。")
+    except socket.timeout:
+        print(f"  ✗ TCP タイムアウト")
+        print(f"    → ファイアウォールやプロキシでブロックされている可能性があります。")
+    except OSError as e:
+        print(f"  ✗ TCP エラー: {e}")
+
+    # 4. エラー種別ヒント
+    err_str = str(error).lower()
+    print("\n  エラー種別ヒント:")
+    if "proxy" in err_str or "tunnel" in err_str:
+        print("  → プロキシ関連エラー。NO_PROXY に LLM_IP を追加してください。")
+    elif "timed out" in err_str or "timeout" in err_str:
+        print("  → タイムアウト。LLM サーバーの負荷が高いか、ネットワーク経路に問題があります。")
+    elif "refused" in err_str:
+        print("  → 接続拒否。LLM サーバーが起動していません。")
+    elif "ssl" in err_str or "certificate" in err_str:
+        print("  → SSL エラー。http:// で接続しているか確認してください。")
+    elif "name or service not known" in err_str or "nodename nor servname" in err_str:
+        print("  → ホスト名解決失敗。LLM_IP の設定値を確認してください。")
+    else:
+        print(f"  → {type(error).__name__}: {error}")
+
+
 def get_llm():
     """USE_REAL_LLM に応じて LLM を返す。"""
     if USE_REAL_LLM:
         from dotenv import load_dotenv
         load_dotenv(os.path.join(_HOST_DIR, ".env"))
-        # NO_PROXY を設定してプロキシ経由にならないようにする
-        c = get_llm_config()
-        no_proxy_hosts = {"localhost", "127.0.0.1", c.llm_ip}
-        existing = {h.strip() for h in os.environ.get("NO_PROXY", "").split(",") if h.strip()}
-        merged = ",".join(sorted(existing | no_proxy_hosts))
-        os.environ["NO_PROXY"] = merged
-        os.environ["no_proxy"] = merged
+        _apply_no_proxy()
 
+        c = get_llm_config()
         from langchain_openai import ChatOpenAI
         print(f"  [LLM] 実LLM使用: {c.llm_model} @ {c.llm_ip}:{c.llm_port}")
         return ChatOpenAI(
@@ -428,6 +522,95 @@ def test_full_workflow():
     print("\n[OK] full_workflow")
 
 
+def test_llm_health():
+    """
+    ⑦ LLM ヘルスチェック (/v1/models への疎通確認)。
+    本番の /api/settings/health と同等の確認をスクリプト単体で実行する。
+
+    確認内容:
+      - LLM エンドポイントに HTTP 200 が返るか
+      - レスポンスに設定モデルが含まれているか
+      - 失敗時は _diagnose_connection_error() で原因を分析
+    """
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(_HOST_DIR, ".env"))
+    _apply_no_proxy()
+    c = get_llm_config()
+
+    url = f"http://{c.llm_ip}:{c.llm_port}/v1/models"
+    print("\n" + "=" * 60)
+    print("TEST ⑦ LLM ヘルスチェック")
+    print("=" * 60)
+    print(f"  接続先  : {url}")
+    print(f"  モデル  : {c.llm_model}")
+    print(f"  NO_PROXY: {os.environ.get('NO_PROXY', '(未設定)')}")
+
+    try:
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {c.llm_api_key}"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode()
+            data = _json.loads(body)
+            models = [m.get("id", "?") for m in data.get("data", [])]
+            print(f"  HTTP ステータス  : {resp.status}")
+            print(f"  利用可能モデル   : {models}")
+            if c.llm_model in models:
+                print(f"  ✓ 設定モデル '{c.llm_model}' を確認")
+            else:
+                print(f"  ⚠ 設定モデル '{c.llm_model}' が一覧にありません → .env の LLM_MODEL を確認")
+        print("\n[OK] LLM ヘルスチェック成功")
+        return True
+    except Exception as e:
+        print(f"\n  [FAIL] {type(e).__name__}: {e}")
+        _diagnose_connection_error(c.llm_ip, int(c.llm_port), e)
+        print("\n[FAIL] LLM ヘルスチェック失敗")
+        return False
+
+
+def test_llm_chat():
+    """
+    ⑧ LLM チャット疎通テスト。
+    実際に LLM へ短いプロンプトを送信してレスポンスを確認する。
+    ヘルスチェック (⑦) が成功してからこのテストを実行することを推奨。
+
+    確認内容:
+      - ChatOpenAI.invoke() が正常に返るか
+      - レスポンス内容を表示
+      - 失敗時は _diagnose_connection_error() で原因を分析
+    """
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(_HOST_DIR, ".env"))
+    _apply_no_proxy()
+    c = get_llm_config()
+
+    print("\n" + "=" * 60)
+    print("TEST ⑧ LLM チャット疎通テスト")
+    print("=" * 60)
+    print(f"  接続先  : http://{c.llm_ip}:{c.llm_port}/v1")
+    print(f"  モデル  : {c.llm_model}")
+
+    try:
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            temperature=0,
+            model=c.llm_model,
+            base_url=f"http://{c.llm_ip}:{c.llm_port}/v1",
+            api_key=c.llm_api_key,
+        )
+        prompt = "「テスト成功」とだけ答えてください。"
+        print(f"  送信: '{prompt}'")
+        response = llm.invoke(prompt)  # ← ブレイクポイントを置ける
+        print(f"  受信: {response.content}")
+        print("\n[OK] LLM チャット疎通テスト成功")
+        return True
+    except Exception as e:
+        print(f"\n  [FAIL] {type(e).__name__}: {e}")
+        _diagnose_connection_error(c.llm_ip, int(c.llm_port), e)
+        print("\n[FAIL] LLM チャット疎通テスト失敗")
+        return False
+
+
 # ================================================================
 # エントリポイント
 # ================================================================
@@ -441,13 +624,21 @@ if __name__ == "__main__":
 
     # ← ここにブレイクポイントを置いてステップ実行できます
 
-    # 実行するテストをコメントアウトで選べます
+    # ------------------------------------------------------------------
+    # LLM 接続確認 (まずここで疎通を確認してから下のテストを実行すると効率的)
+    # ------------------------------------------------------------------
+    test_llm_health()   # ⑦ /v1/models への HTTP 疎通 + モデル一覧確認
+    test_llm_chat()     # ⑧ 実際にプロンプトを送って応答を確認
+
+    # ------------------------------------------------------------------
+    # ワークフロー テスト (実行するテストをコメントアウトで選べます)
+    # ------------------------------------------------------------------
     # test_persona_selector()
     # test_input_builder()
     # test_single_agent_call()
     # test_turn_runner()
     # test_summarizer()
-    test_full_workflow()
+    # test_full_workflow()
 
     print("\n" + "=" * 60)
     print("全テスト完了!")
