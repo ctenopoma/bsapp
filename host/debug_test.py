@@ -63,12 +63,15 @@ sys.modules.setdefault("qdrant_client.models", MagicMock())
 from src.models import (
     Persona, RagConfig, TaskModel, MessageHistory,
     ThemeConfig, SessionStartRequest, AgentInput,
+    PatentAnalyzeRequest, PatentAnalyzeResponse, PatentSummaryRequest,
 )
+from src.models import PatentItem
 from src.session_manager import SessionMemory, SessionManager
 from src.workflow.persona_selector import select_persona
 from src.workflow.input_builder import build_agent_input
 from src.workflow.turn_runner import run_one_theme
 from src.workflow.summarizer import summarize_theme
+from src.workflow.patent import analyze_company, summarize_all
 from src.app_settings import get_settings, get_llm_config
 from langchain_core.prompts import PromptTemplate
 
@@ -612,6 +615,113 @@ def test_llm_chat():
 
 
 # ================================================================
+# 特許調査テスト
+# ================================================================
+
+class _PromptCaptureLLM:
+    """
+    プロンプト全文を表示するデバッグ用 MockLLM。
+    企業名がプロンプトに正しく含まれているか目視確認できる。
+    """
+    def __init__(self):
+        self._call_count = 0
+
+    def invoke(self, prompt: str) -> MockResponse:
+        self._call_count += 1
+        print(f"\n  --- LLM プロンプト全文 (call #{self._call_count}) ---")
+        print(prompt)
+        print(f"  --- プロンプト終了 ({len(prompt)}文字) ---")
+        return MockResponse(f"[_PromptCaptureLLM #{self._call_count}] ダミー応答")
+
+
+def test_patent_analyze():
+    """
+    ⑨ 特許分析ワークフローのテスト (企業名確認)。
+    analyze_company() に渡したプロンプト全文を表示し、
+    企業名・特許内容が正しく含まれているかを目視確認する。
+
+    デバッグポイント:
+      - request.company がプロンプトに含まれているか確認
+      - patents_text の中身が正しいか確認
+    """
+    print("\n" + "=" * 60)
+    print("TEST ⑨ patent_analyze (企業名取得確認)")
+    print("=" * 60)
+
+    company = "テスト株式会社"
+    request = PatentAnalyzeRequest(
+        company=company,
+        patents=[
+            PatentItem(content="AIを用いた画像認識システム", date="2023-01-15"),
+            PatentItem(content="機械学習による異常検知装置", date="2023-03-20"),
+            PatentItem(content="自然言語処理を用いた文書分類方法", date="2022-11-01"),
+        ],
+        system_prompt="",
+        output_format="",
+    )
+
+    print(f"  送信企業名 : {request.company}")
+    print(f"  送信特許数 : {len(request.patents)}")
+
+    # プロンプト全文を表示する LLM を使用
+    llm = _PromptCaptureLLM()
+    report = analyze_company(request, llm)  # ← ブレイクポイントを置ける
+
+    # 企業名がプロンプトに含まれていたか検証
+    print(f"\n  企業名 '{company}' が report に含まれるか: {company in report}")
+    print(f"\n  --- analyze_company 戻り値 ---")
+    print(f"  {report}")
+
+    print("\n[OK] patent_analyze")
+
+
+def test_patent_summarize():
+    """
+    ⑩ 特許総括ワークフローのテスト (複数企業名確認)。
+    summarize_all() に渡したプロンプト全文を表示し、
+    全企業名が正しく含まれているかを目視確認する。
+
+    デバッグポイント:
+      - r.company の値がプロンプトに含まれているか確認
+      - 企業名順序が崩れていないか確認
+    """
+    print("\n" + "=" * 60)
+    print("TEST ⑩ patent_summarize (複数企業名確認)")
+    print("=" * 60)
+
+    companies = ["アルファ工業株式会社", "ベータテクノロジーズ", "ガンマ電機"]
+    company_reports = [
+        PatentAnalyzeResponse(
+            company=c,
+            report=f"## {c} 分析レポート\n### 主な技術領域\n- AI・機械学習",
+        )
+        for c in companies
+    ]
+    request = PatentSummaryRequest(
+        company_reports=company_reports,
+        system_prompt="",
+    )
+
+    print(f"  送信企業数 : {len(companies)}")
+    for c in companies:
+        print(f"    - {c}")
+
+    # プロンプト全文を表示する LLM を使用
+    llm = _PromptCaptureLLM()
+    summary = summarize_all(request, llm)  # ← ブレイクポイントを置ける
+
+    # 全企業名がプロンプトに含まれていたか検証
+    print(f"\n  企業名ごとの含有確認:")
+    for c in companies:
+        print(f"    '{c}' in summary: {c in summary}")
+
+    print(f"\n  --- summarize_all 戻り値 ---")
+    print(f"  {summary}")
+
+    print("\n[OK] patent_summarize")
+
+
+# ================================================================
 # エントリポイント
 # ================================================================
 
@@ -639,6 +749,12 @@ if __name__ == "__main__":
     # test_turn_runner()
     # test_summarizer()
     # test_full_workflow()
+
+    # ------------------------------------------------------------------
+    # 特許調査テスト (企業名取得確認)
+    # ------------------------------------------------------------------
+    test_patent_analyze()    # ⑨ プロンプト全文表示で企業名の含まれ方を確認
+    test_patent_summarize()  # ⑩ 複数企業名が総括プロンプトに正しく渡されるか確認
 
     print("\n" + "=" * 60)
     print("全テスト完了!")
