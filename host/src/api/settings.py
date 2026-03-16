@@ -35,7 +35,8 @@ def health_check():
     c = get_llm_config()
     url = f"http://{c.llm_ip}:{c.llm_port}/v1/models"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {c.llm_api_key}"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
             llm_ok = resp.status == 200
             llm_error = None if llm_ok else f"HTTP {resp.status}"
     except Exception as e:
