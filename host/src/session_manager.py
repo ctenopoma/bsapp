@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import uuid
 
 from .models import Persona, MessageHistory, SessionStartRequest, ThemeConfig
@@ -18,6 +18,9 @@ class SessionMemory:
         self.turn_count_in_theme: int = 0
         self.summaries: List[dict] = []  # {"theme": str, "summary": str} のリスト
         self.summary_memory = "" # 過去のテーマの要約情報
+        # 前回の選択 (テーマ切り替え時にリセット)
+        self.last_persona_id: Optional[str] = None
+        self.last_task_id: Optional[str] = None
 
     @property
     def current_theme_config(self) -> ThemeConfig | None:
@@ -55,6 +58,8 @@ class SessionMemory:
         )
         self.current_theme_index += 1
         self.turn_count_in_theme = 0
+        self.last_persona_id = None
+        self.last_task_id = None
 
 
 class SessionManager:
