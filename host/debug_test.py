@@ -42,6 +42,10 @@ if _HOST_DIR not in sys.path:
 USE_REAL_LLM = False   # True にすると .env の LLM を使用
 TURNS_PER_THEME = 2    # 1テーマあたりのターン数 (デバッグ時は少なめに)
 
+# ---- 特許調査テスト用 ----
+PATENT_CSV_PATH = ""   # test_report() で読み込む CSV ファイルのパス (絶対パス or host/ からの相対パス)
+PATENT_MAX_COMPANIES = 3  # 分析する上位企業数 (件数降順)
+
 # ----------------------------------------------------------------
 # rag_manager / qdrant をモック化: インポート時の接続エラーを回避
 # ----------------------------------------------------------------
@@ -618,107 +622,134 @@ def test_llm_chat():
 # 特許調査テスト
 # ================================================================
 
-class _PromptCaptureLLM:
+def test_report():
     """
-    プロンプト全文を表示するデバッグ用 MockLLM。
-    企業名がプロンプトに正しく含まれているか目視確認できる。
-    """
-    def __init__(self):
-        self._call_count = 0
+    ⑨ 特許調査レポートの E2E テスト (CSV 読み込み)。
+    PATENT_CSV_PATH の CSV を読み込み、settings.json の列名設定を使って
+    企業ごとに analyze_company() → summarize_all() を実行する。
 
-    def invoke(self, prompt: str) -> MockResponse:
-        self._call_count += 1
-        print(f"\n  --- LLM プロンプト全文 (call #{self._call_count}) ---")
-        print(prompt)
-        print(f"  --- プロンプト終了 ({len(prompt)}文字) ---")
-        return MockResponse(f"[_PromptCaptureLLM #{self._call_count}] ダミー応答")
+    USE_REAL_LLM = False の場合: LLM に渡るプロンプト全文を表示する。
+    USE_REAL_LLM = True  の場合: 実際の LLM でレポートを生成する。
 
-
-def test_patent_analyze():
-    """
-    ⑨ 特許分析ワークフローのテスト (企業名確認)。
-    analyze_company() に渡したプロンプト全文を表示し、
-    企業名・特許内容が正しく含まれているかを目視確認する。
+    設定フラグ (このファイルの先頭):
+      PATENT_CSV_PATH      - 読み込む CSV ファイルのパス
+      PATENT_MAX_COMPANIES - 分析する上位企業数 (件数降順)
 
     デバッグポイント:
-      - request.company がプロンプトに含まれているか確認
-      - patents_text の中身が正しいか確認
+      - CSV から正しく企業名・特許内容が取得できているか確認
+      - analyze_company() に渡るプロンプトに企業名が含まれているか確認
+      - summarize_all() に全企業が正しく渡されているか確認
     """
+    import csv
+    import io
+    from pathlib import Path
+    from collections import defaultdict
+
     print("\n" + "=" * 60)
-    print("TEST ⑨ patent_analyze (企業名取得確認)")
+    print("TEST ⑨ test_report (CSV → 企業別分析 → 総括)")
     print("=" * 60)
 
-    company = "テスト株式会社"
-    request = PatentAnalyzeRequest(
-        company=company,
-        patents=[
-            PatentItem(content="AIを用いた画像認識システム", date="2023-01-15"),
-            PatentItem(content="機械学習による異常検知装置", date="2023-03-20"),
-            PatentItem(content="自然言語処理を用いた文書分類方法", date="2022-11-01"),
-        ],
-        system_prompt="",
-        output_format="",
-    )
+    # --- settings.json から列名を取得 ---
+    cfg = get_settings()
+    company_col = cfg.patent_company_column
+    content_col = cfg.patent_content_column
+    date_col    = cfg.patent_date_column
+    print(f"  [settings.json] 企業列={company_col}  内容列={content_col}  日付列={date_col}")
 
-    print(f"  送信企業名 : {request.company}")
-    print(f"  送信特許数 : {len(request.patents)}")
+    # --- CSV 読み込み ---
+    csv_path = Path(PATENT_CSV_PATH) if PATENT_CSV_PATH else None
+    if not csv_path or not csv_path.exists():
+        print(f"\n  CSV ファイルが見つかりません: {PATENT_CSV_PATH!r}")
+        print("  debug_test.py 先頭の PATENT_CSV_PATH にパスを設定してください。")
+        print("\n[SKIP] test_report")
+        return
 
-    # プロンプト全文を表示する LLM を使用
-    llm = _PromptCaptureLLM()
-    report = analyze_company(request, llm)  # ← ブレイクポイントを置ける
+    raw = csv_path.read_bytes()
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "shift-jis", "cp932"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        print("  文字コードの判別に失敗しました (UTF-8 / Shift-JIS を確認してください)。")
+        print("\n[FAIL] test_report")
+        return
 
-    # 企業名がプロンプトに含まれていたか検証
-    print(f"\n  企業名 '{company}' が report に含まれるか: {company in report}")
-    print(f"\n  --- analyze_company 戻り値 ---")
-    print(f"  {report}")
+    reader = csv.DictReader(io.StringIO(text))
+    rows = [{k.strip(): v.strip() for k, v in row.items()} for row in reader]
+    if not rows:
+        print("  CSV にデータ行がありません。")
+        print("\n[FAIL] test_report")
+        return
 
-    print("\n[OK] patent_analyze")
+    # --- 列名チェック ---
+    available_cols = list(rows[0].keys())
+    print(f"  読み込み行数 : {len(rows)}")
+    print(f"  検出列名     : {available_cols}")
 
+    missing = [c for c in (company_col, content_col) if c not in available_cols]
+    if missing:
+        print(f"\n  列名が見つかりません: {missing}")
+        print("  settings.json の patent_*_column を CSV の列名に合わせて修正してください。")
+        print("\n[FAIL] test_report")
+        return
 
-def test_patent_summarize():
-    """
-    ⑩ 特許総括ワークフローのテスト (複数企業名確認)。
-    summarize_all() に渡したプロンプト全文を表示し、
-    全企業名が正しく含まれているかを目視確認する。
+    # --- 企業ごとに集計 (件数降順) ---
+    company_map: dict[str, list] = defaultdict(list)
+    for row in rows:
+        co = row.get(company_col, "").strip()
+        if co:
+            company_map[co].append(row)
 
-    デバッグポイント:
-      - r.company の値がプロンプトに含まれているか確認
-      - 企業名順序が崩れていないか確認
-    """
-    print("\n" + "=" * 60)
-    print("TEST ⑩ patent_summarize (複数企業名確認)")
-    print("=" * 60)
+    sorted_companies = sorted(company_map.items(), key=lambda x: -len(x[1]))
+    print(f"  企業数       : {len(sorted_companies)}")
+    print(f"  分析対象     : 上位 {PATENT_MAX_COMPANIES} 社")
+    for co, co_rows in sorted_companies[:PATENT_MAX_COMPANIES]:
+        print(f"    - {co} ({len(co_rows)}件)")
 
-    companies = ["アルファ工業株式会社", "ベータテクノロジーズ", "ガンマ電機"]
-    company_reports = [
-        PatentAnalyzeResponse(
-            company=c,
-            report=f"## {c} 分析レポート\n### 主な技術領域\n- AI・機械学習",
-        )
-        for c in companies
-    ]
-    request = PatentSummaryRequest(
-        company_reports=company_reports,
-        system_prompt="",
-    )
+    # --- LLM 選択 ---
+    # USE_REAL_LLM=False のときはプロンプト全文を出力するキャプチャ LLM を使う
+    class _CaptureLLM:
+        def __init__(self):
+            self._n = 0
+        def invoke(self, prompt: str) -> MockResponse:
+            self._n += 1
+            print(f"\n  ---- プロンプト全文 (call #{self._n}, {len(prompt)}文字) ----")
+            print(prompt)
+            print(f"  ---- プロンプト終了 ----")
+            return MockResponse(f"[Mock #{self._n}] ダミー応答")
 
-    print(f"  送信企業数 : {len(companies)}")
-    for c in companies:
-        print(f"    - {c}")
+    llm = get_llm() if USE_REAL_LLM else _CaptureLLM()
 
-    # プロンプト全文を表示する LLM を使用
-    llm = _PromptCaptureLLM()
-    summary = summarize_all(request, llm)  # ← ブレイクポイントを置ける
+    # --- 企業別分析 ---
+    completed: list[PatentAnalyzeResponse] = []
+    for company, co_rows in sorted_companies[:PATENT_MAX_COMPANIES]:  # ← ブレイクポイントを置ける
+        sorted_rows = sorted(co_rows, key=lambda r: r.get(date_col, ""), reverse=True)[:10]
+        patents = [
+            PatentItem(content=r.get(content_col, ""), date=r.get(date_col, ""))
+            for r in sorted_rows
+            if r.get(content_col, "").strip()
+        ]
+        if not patents:
+            print(f"\n  [{company}] 内容列が空のためスキップ")
+            continue
 
-    # 全企業名がプロンプトに含まれていたか検証
-    print(f"\n  企業名ごとの含有確認:")
-    for c in companies:
-        print(f"    '{c}' in summary: {c in summary}")
+        print(f"\n  === [{company}] 特許{len(patents)}件を分析 ===")
+        req = PatentAnalyzeRequest(company=company, patents=patents, system_prompt="", output_format="")
+        report = analyze_company(req, llm)
+        print(f"  → 戻り値先頭: {report[:120].replace(chr(10), ' ')}")
+        completed.append(PatentAnalyzeResponse(company=company, report=report))
 
-    print(f"\n  --- summarize_all 戻り値 ---")
-    print(f"  {summary}")
+    # --- 総括 ---
+    if completed:
+        print(f"\n  === 総括 ({len(completed)}社分) ===")
+        summary_req = PatentSummaryRequest(company_reports=completed, system_prompt="")
+        summary = summarize_all(summary_req, llm)  # ← ブレイクポイントを置ける
+        print(f"  → 戻り値先頭: {summary[:120].replace(chr(10), ' ')}")
 
-    print("\n[OK] patent_summarize")
+    print("\n[OK] test_report")
 
 
 # ================================================================
@@ -751,10 +782,9 @@ if __name__ == "__main__":
     # test_full_workflow()
 
     # ------------------------------------------------------------------
-    # 特許調査テスト (企業名取得確認)
+    # 特許調査テスト (PATENT_CSV_PATH を設定してから実行)
     # ------------------------------------------------------------------
-    test_patent_analyze()    # ⑨ プロンプト全文表示で企業名の含まれ方を確認
-    test_patent_summarize()  # ⑩ 複数企業名が総括プロンプトに正しく渡されるか確認
+    test_report()  # ⑨ CSV読み込み → 企業別分析 → 総括 (プロンプト全文確認)
 
     print("\n" + "=" * 60)
     print("全テスト完了!")
