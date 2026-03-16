@@ -185,12 +185,12 @@ export default function SetupScreen() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6 flex flex-col gap-4">
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">共通テーマ <span className="text-gray-400 font-normal text-xs">（全テーマに共通する上位テーマ）</span></label>
-          <input
-            type="text"
+          <textarea
             value={commonTheme}
             onChange={e => { setCommonTheme(e.target.value); saveSessionConfig('common_theme', e.target.value).catch(console.error); }}
             placeholder="例: 2030年の社会課題"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            rows={3}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
           />
         </div>
         <div>

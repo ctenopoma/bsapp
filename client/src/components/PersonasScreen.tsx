@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Persona, AvailableRagType, RagConfig } from '../types/api';
 import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/db';
-import { apiGetRagTypes } from '../lib/api';
-import { Plus, Trash2, Edit2, Save, X } from 'lucide-react';
+import { apiGetRagTypes, apiGetSettings, apiSaveSettings } from '../lib/api';
+import { Plus, Trash2, Edit2, Save, X, FileText } from 'lucide-react';
 
 const SELECT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white";
 const INPUT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
@@ -67,6 +67,12 @@ export default function PersonasScreen() {
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '', pre_info: '' });
 
+  // 要約エージェント
+  const [summaryPrompt, setSummaryPrompt] = useState('');
+  const [summaryPromptLoaded, setSummaryPromptLoaded] = useState(false);
+  const [summaryPromptSaving, setSummaryPromptSaving] = useState(false);
+  const [summaryPromptSaved, setSummaryPromptSaved] = useState(false);
+
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
     element.style.height = 'auto';
@@ -92,9 +98,34 @@ export default function PersonasScreen() {
     }
   };
 
+  const loadSummaryPrompt = async () => {
+    try {
+      const settings = await apiGetSettings();
+      setSummaryPrompt(settings.summary_prompt_template);
+      setSummaryPromptLoaded(true);
+    } catch {
+      // ホスト未接続の場合は非表示のまま
+    }
+  };
+
+  const handleSaveSummaryPrompt = async () => {
+    setSummaryPromptSaving(true);
+    try {
+      const settings = await apiGetSettings();
+      await apiSaveSettings({ ...settings, summary_prompt_template: summaryPrompt });
+      setSummaryPromptSaved(true);
+      setTimeout(() => setSummaryPromptSaved(false), 2000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSummaryPromptSaving(false);
+    }
+  };
+
   useEffect(() => {
     loadPersonas();
     loadRagTypes();
+    loadSummaryPrompt();
   }, []);
 
   useEffect(() => {
@@ -182,6 +213,43 @@ export default function PersonasScreen() {
               <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancel</button>
               <button onClick={handleCreate} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Save</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 要約エージェント */}
+      {summaryPromptLoaded && (
+        <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText size={18} className="text-amber-600" />
+            <h2 className="text-lg font-bold text-gray-900">要約エージェント</h2>
+            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">固定</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            各テーマの議論終了後に要約を生成するエージェントのプロンプトです。
+            使用可能な変数: <code className="bg-gray-100 px-1 rounded">{'{theme}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{history}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{output_format}'}</code>
+          </p>
+          <textarea
+            value={summaryPrompt}
+            onChange={e => setSummaryPrompt(e.target.value)}
+            rows={8}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 resize-y font-mono"
+          />
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={handleSaveSummaryPrompt}
+              disabled={summaryPromptSaving}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                summaryPromptSaved
+                  ? 'bg-green-600 text-white'
+                  : 'bg-amber-600 hover:bg-amber-700 text-white disabled:bg-amber-400'
+              }`}
+            >
+              <Save size={15} />
+              {summaryPromptSaved ? '保存しました' : summaryPromptSaving ? '保存中...' : '保存'}
+            </button>
           </div>
         </div>
       )}

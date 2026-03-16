@@ -3,23 +3,93 @@ input_builder.py
 =================
 エージェント1ターン分の入力 (AgentInput) を組み立てるロジック。
 
-★ ここを書き換えることで各エージェントへ渡す情報を変更できます ★
+★ TASK_SELECTION_STRATEGY を変更するだけでタスク割り当て方法を切り替えられます ★
 
-変更できること:
+対応ストラテジー:
+  - TaskStrategy.RANDOM      : ランダム選択 (デフォルト)
+  - TaskStrategy.ROUND_ROBIN : ターン順にタスクを均等に巡回
+  - TaskStrategy.ROLE_MATCH  : ペルソナのロール名に一致するタスクを優先、なければランダム
+
+新しいストラテジーを追加する手順:
+  1. TaskStrategy に新しい値を追加
+  2. 対応する _assign_xxx 関数を実装
+  3. _TASK_STRATEGY_MAP に登録
+
+変更できること (その他):
   - 渡す履歴の件数・圧縮設定 (AppSettings の max_history_tokens / recent_history_count)
-  - タスク割り当て方法 (ランダム → 役割ベース など)
   - RAG取得クエリのカスタマイズ
   - output_format の動的変更
 """
 
 import random
+from enum import Enum
+from typing import Callable, List, Optional
 
-from ..models import Persona, AgentInput
+# ------------------------------------------------------------------
+# ★ ここを変更してストラテジーを切り替える ★
+# ------------------------------------------------------------------
+TASK_SELECTION_STRATEGY = "round_robin"
+# ------------------------------------------------------------------
+
+from ..models import Persona, AgentInput, TaskModel
 from ..session_manager import SessionMemory
 from ..rag_manager import rag_manager
 from ..app_settings import get_settings, get_max_history_tokens_limit
 from .history_compressor import compress_history
 
+
+# ------------------------------------------------------------------
+# タスク選択ストラテジー
+# ------------------------------------------------------------------
+
+class TaskStrategy(str, Enum):
+    RANDOM      = "random"
+    ROUND_ROBIN = "round_robin"
+    ROLE_MATCH  = "role_match"
+
+
+def _assign_random(tasks: List[TaskModel], persona: Persona, session: SessionMemory) -> TaskModel:
+    """完全ランダム選択。"""
+    return random.choice(tasks)
+
+
+def _assign_round_robin(tasks: List[TaskModel], persona: Persona, session: SessionMemory) -> TaskModel:
+    """ターン順にタスクを均等に巡回する。テーマが変わると先頭に戻る。"""
+    idx = session.turn_count_in_theme % len(tasks)
+    return tasks[idx]
+
+
+def _assign_role_match(tasks: List[TaskModel], persona: Persona, session: SessionMemory) -> TaskModel:
+    """ペルソナのロール名を含むタスクを優先して割り当てる。
+
+    一致するタスクが複数ある場合はその中からランダムに選ぶ。
+    一致するタスクがない場合はランダムにフォールバックする。
+    """
+    matched = [t for t in tasks if persona.role in t.description]
+    return random.choice(matched) if matched else random.choice(tasks)
+
+
+# ストラテジーマップ (新しいストラテジーはここに追加)
+_TASK_STRATEGY_MAP: dict[str, Callable[[List[TaskModel], Persona, SessionMemory], TaskModel]] = {
+    TaskStrategy.RANDOM:      _assign_random,
+    TaskStrategy.ROUND_ROBIN: _assign_round_robin,
+    TaskStrategy.ROLE_MATCH:  _assign_role_match,
+}
+
+
+def _select_task(tasks: List[TaskModel], persona: Persona, session: SessionMemory) -> TaskModel:
+    strategy_fn = _TASK_STRATEGY_MAP.get(TASK_SELECTION_STRATEGY)
+    if strategy_fn is None:
+        raise ValueError(
+            f"未知の TASK_SELECTION_STRATEGY: '{TASK_SELECTION_STRATEGY}'. "
+            f"有効な値: {list(_TASK_STRATEGY_MAP.keys())}"
+        )
+    chosen = strategy_fn(tasks, persona, session)
+    session.last_task_id = chosen.id
+    return chosen
+
+
+# ------------------------------------------------------------------
 
 def build_agent_input(
     session: SessionMemory,
@@ -43,11 +113,11 @@ def build_agent_input(
         LLM呼び出しに渡す入力データ。
     """
     # ------------------------------------------------------------------
-    # タスク割り当て (デフォルト: ランダム選択)
+    # タスク割り当て (TASK_SELECTION_STRATEGY に従って選択)
     # ------------------------------------------------------------------
     task_description = ""
     if session.tasks:
-        assigned_task = random.choice(session.tasks)
+        assigned_task = _select_task(session.tasks, persona, session)
         task_description = assigned_task.description
 
     # ------------------------------------------------------------------

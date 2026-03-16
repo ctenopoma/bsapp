@@ -253,19 +253,24 @@ VITE_API_URL=http://192.168.1.100:8080
 
 ### 発言者の選択ロジックを変える
 
-`workflow/persona_selector.py` の `select_persona()` を編集します。
+`workflow/persona_selector.py` の `PERSONA_SELECTION_STRATEGY` 定数を変更します。
 
 ```python
-def select_persona(active_personas, session):
-    # デフォルト: ランダム選択
-    # 変更例: ラウンドロビン、役割ベース優先 など
-    return random.choice(active_personas)
+PERSONA_SELECTION_STRATEGY = "round_robin"  # "random" / "round_robin" / "role_first"
 ```
+
+新しいストラテジーを追加する場合は `_STRATEGY_MAP` に関数を登録します。
+詳細は `AGENT_WORKFLOW.md` を参照してください。
 
 ### エージェントへ渡す情報を変える
 
-`workflow/input_builder.py` の `build_agent_input()` を編集します。
-会話履歴の渡し方・RAG検索クエリ・タスク割り当て方法などを変更できます。
+`workflow/input_builder.py` の `TASK_SELECTION_STRATEGY` 定数でタスク割り当て方法を変更できます。
+
+```python
+TASK_SELECTION_STRATEGY = "role_match"  # "random" / "round_robin" / "role_match"
+```
+
+会話履歴の渡し方・RAG検索クエリなど他の変更は `build_agent_input()` を直接編集します。
 
 ### 会話履歴の圧縮設定
 

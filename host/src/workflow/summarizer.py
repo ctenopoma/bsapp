@@ -45,11 +45,24 @@ def summarize_theme(session: SessionMemory, llm) -> str:
     # ------------------------------------------------------------------
     # プロンプト組み立て & LLM呼び出し
     # ------------------------------------------------------------------
-    prompt_template = PromptTemplate(
-        input_variables=["theme", "history", "output_format"],
-        template=get_settings().summary_prompt_template,
+    # input_variables はテンプレートから自動推論する。
+    # カスタムテンプレートで {output_format} を省略してもエラーにならない。
+    template_str = get_settings().summary_prompt_template
+    prompt_template = PromptTemplate.from_template(template_str)
+
+    output_format = (
+        session.current_theme_config.output_format
+        if session.current_theme_config
+        else ""
     )
+    format_kwargs = dict(
+        theme=session.current_theme,
+        history=history_text,
+        output_format=output_format,
+    )
+    # テンプレートが使わない変数はここで除外し、不要なキーエラーを防ぐ
+    used_vars = set(prompt_template.input_variables)
     response = llm.invoke(
-        prompt_template.format(theme=session.current_theme, history=history_text, output_format=session.current_theme_config.output_format) # type: ignore
+        prompt_template.format(**{k: v for k, v in format_kwargs.items() if k in used_vars})
     )
     return response.content
