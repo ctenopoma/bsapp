@@ -24,21 +24,56 @@ import { fetch } from '@tauri-apps/plugin-http';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
+// Viteのビルド時定数: vite build (リリース) では false に置換されコードごと削除される
+const IS_DEV = import.meta.env.DEV;
+
+function vlog(message: string, ...args: unknown[]): void {
+  if (IS_DEV) console.log(message, ...args);
+}
+
+function vlogError(message: string, ...args: unknown[]): void {
+  if (IS_DEV) console.error(message, ...args);
+}
+
 async function request<T>(path: string, options?: any): Promise<T> {
+  const method = options?.method || 'GET';
+  const url = `${BASE_URL}${path}`;
+
+  vlog(`[→Host] ${method} ${url}`);
+  if (IS_DEV && options?.body) {
+    try {
+      vlog('  body:', JSON.parse(options.body));
+    } catch {
+      vlog('  body:', options.body);
+    }
+  }
+
+  const startMs = Date.now();
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      method: options?.method || 'GET',
+    const res = await fetch(url, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: options?.body,
     });
-    
+
+    const elapsed = Date.now() - startMs;
+    vlog(`[Host→] ${res.status} ${url}  (${elapsed}ms)`);
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API error ${res.status}: ${text}`);
     }
-    
+
     return res.json() as Promise<T>;
   } catch (err: any) {
+    const elapsed = Date.now() - startMs;
+    vlogError(`[Fetch ERROR] ${method} ${url}  (${elapsed}ms)`);
+    vlogError(`  ${err.message || err}`);
+    vlogError(`  ブラウザで確認: ${url}`);
+    if (!BASE_URL.includes('localhost') && !BASE_URL.includes('127.0.0.1')) {
+      vlogError(`  capabilities確認: src-tauri/capabilities/default.json の allow に ${BASE_URL}/** があるか確認`);
+    }
+
     let detail = String(err);
     if (typeof err === 'object' && err !== null) {
       try {

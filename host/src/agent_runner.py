@@ -1,3 +1,6 @@
+import logging
+import time
+import urllib.request
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
@@ -14,8 +17,25 @@ from .workflow import (
     summarize_theme,
 )
 
+logger = logging.getLogger("bsapp.llm")
+
 # Temporary simple dictionary to hold job statuses
 job_statuses: Dict[str, Dict[str, Any]] = {}
+
+
+def _proxy_status(url: str) -> str:
+    """URLがプロキシ経由になるか判定して文字列で返す。"""
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or url
+    try:
+        bypassed = urllib.request.proxy_bypass(host)
+    except Exception:
+        bypassed = False
+    if bypassed:
+        return "BYPASS (OK)"
+    proxies = urllib.request.getproxies()
+    proxy_url = proxies.get("http") or proxies.get("https") or "不明"
+    return f"VIA PROXY ({proxy_url}) ← NO_PROXY に {host} を追加が必要"
 
 
 def create_llm() -> ChatOpenAI:
@@ -76,7 +96,40 @@ class AgentRunner:
 
     def _invoke_llm(self, prompt: str):
         """常に最新の設定でLLMを生成して呼び出す。"""
-        return create_llm().invoke(prompt)
+        c = get_llm_config()
+        base_url = f"http://{c.llm_ip}:{c.llm_port}/v1"
+        endpoint = f"{base_url}/chat/completions"
+        proxy = _proxy_status(endpoint)
+
+        logger.info(f"[Host→LLM] POST {endpoint}")
+        logger.info(f"  model={c.llm_model}  prompt_chars={len(prompt)}")
+        logger.info(f"  proxy: {proxy}")
+        logger.info(
+            f"  # 手動確認 (ホストから実行):\n"
+            f"  curl -v --noproxy '*' -X POST {endpoint} \\\n"
+            f"    -H 'Content-Type: application/json' \\\n"
+            f"    -H 'Authorization: Bearer {c.llm_api_key}' \\\n"
+            f"    -d '{{\"model\":\"{c.llm_model}\","
+            f"\"messages\":[{{\"role\":\"user\",\"content\":\"ping\"}}]}}'"
+        )
+
+        start = time.time()
+        try:
+            result = create_llm().invoke(prompt)
+            elapsed_ms = (time.time() - start) * 1000
+            logger.info(f"[LLM→Host] OK  ({elapsed_ms:.1f}ms)")
+            return result
+        except Exception as e:
+            elapsed_ms = (time.time() - start) * 1000
+            logger.error(f"[LLM ERROR] POST {endpoint}  ({elapsed_ms:.1f}ms)")
+            logger.error(f"  {type(e).__name__}: {e}")
+            logger.error(f"  proxy: {proxy}")
+            logger.error(
+                f"  # モデル一覧で疎通確認:\n"
+                f"  curl -v --noproxy '*' {base_url}/models \\\n"
+                f"    -H 'Authorization: Bearer {c.llm_api_key}'"
+            )
+            raise
 
     def _run_one_theme(self, session: SessionMemory) -> str:
         """現在のテーマを実行して要約を返す。workflow/turn_runner.py に委譲。"""
