@@ -43,6 +43,7 @@ export interface ThemeConfig {
   pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
   theme_strategy?: string; // テーマ内ストラテジー（空=sequential）
   strategy_config?: Record<string, any>; // ストラテジー固有の設定
+  persona_order?: string[]; // ペルソナIDの発言順序（空=ストラテジー任せ）
 }
 
 // テーマ内ストラテジーの定義

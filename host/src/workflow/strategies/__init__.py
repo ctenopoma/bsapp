@@ -9,7 +9,7 @@ strategies パッケージ
   - round_robin  : ラウンドロビン（順番ディベート）— 全員が発言するループを複数回回す
 """
 
-from .base import ThemeStrategy, StrategyContext, StrategyResult
+from .base import ThemeStrategy, StrategyContext, StrategyResult, get_ordered_personas
 from .sequential import SequentialStrategy
 from .parallel import ParallelStrategy
 from .round_robin_debate import RoundRobinDebateStrategy
@@ -37,6 +37,7 @@ __all__ = [
     "ThemeStrategy",
     "StrategyContext",
     "StrategyResult",
+    "get_ordered_personas",
     "STRATEGY_MAP",
     "get_strategy",
 ]

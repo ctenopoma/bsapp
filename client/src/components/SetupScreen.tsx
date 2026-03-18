@@ -9,7 +9,7 @@ import {
   getTaskPresets, TaskPresetData,
 } from '../lib/server-db';
 import { apiStartSession, apiGetSettings } from '../lib/api';
-import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface ThemeEntry {
   localId: string;
@@ -20,14 +20,17 @@ interface ThemeEntry {
   preInfo: string; // テーマ固有の事前情報
   themeStrategy: string; // テーマ内ストラテジー（空 = sequential）
   strategyConfig: Record<string, any>; // ストラテジー固有の設定
+  personaOrder: string[]; // ペルソナIDの発言順序
+  useCustomOrder: boolean; // カスタム順を使用するか
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {} };
+  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any> }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[] }): ThemeEntry {
+  const personaOrder = e.persona_order ?? [];
   return {
     localId: e.id,
     text: e.text,
@@ -37,6 +40,8 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     preInfo: e.pre_info ?? '',
     themeStrategy: e.theme_strategy ?? '',
     strategyConfig: e.strategy_config ?? {},
+    personaOrder,
+    useCustomOrder: personaOrder.length > 0,
   };
 }
 
@@ -50,6 +55,7 @@ function uiToDb(e: ThemeEntry, i: number) {
     pre_info: e.preInfo,
     theme_strategy: e.themeStrategy,
     strategy_config: e.strategyConfig,
+    persona_order: e.useCustomOrder ? e.personaOrder : [],
     sort_order: i,
   };
 }
@@ -283,6 +289,7 @@ export default function SetupScreen() {
       pre_info: e.preInfo || undefined,
       theme_strategy: e.themeStrategy || undefined,
       strategy_config: Object.keys(e.strategyConfig).length > 0 ? e.strategyConfig : undefined,
+      persona_order: e.useCustomOrder && e.personaOrder.length > 0 ? e.personaOrder : undefined,
     }));
 
     try {
@@ -562,6 +569,95 @@ export default function SetupScreen() {
                     </div>
                   );
                 })()}
+              </div>
+              <div className="w-[22px] shrink-0" />
+            </div>
+
+            {/* 発言順設定 */}
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                Order
+              </span>
+              <div className="flex-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={entry.useCustomOrder}
+                    onChange={e => {
+                      const enabled = e.target.checked;
+                      setThemeEntries(prev => {
+                        const next = prev.map(t => {
+                          if (t.localId !== entry.localId) return t;
+                          // 有効化時: 現在のテーマの有効ペルソナでリストを初期化
+                          const initOrder = enabled && t.personaOrder.length === 0
+                            ? personas
+                                .filter(p => activePersonaIds.has(p.id) && isActive(t, p.id))
+                                .map(p => p.id)
+                            : t.personaOrder;
+                          return { ...t, useCustomOrder: enabled, personaOrder: initOrder };
+                        });
+                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                        return next;
+                      });
+                    }}
+                    className="w-3.5 h-3.5 accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-600">カスタム順を使用</span>
+                </label>
+                {entry.useCustomOrder && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {entry.personaOrder
+                      .map(pid => personas.find(p => p.id === pid))
+                      .filter((p): p is typeof personas[0] => p !== undefined)
+                      .map((p, i, arr) => (
+                        <div key={p.id} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 w-5 text-right">{i + 1}.</span>
+                          <span className="text-xs font-medium text-gray-700 flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                            {p.name}
+                          </span>
+                          <button
+                            disabled={i === 0}
+                            onClick={() => {
+                              setThemeEntries(prev => {
+                                const next = prev.map(t => {
+                                  if (t.localId !== entry.localId) return t;
+                                  const order = [...t.personaOrder];
+                                  [order[i - 1], order[i]] = [order[i], order[i - 1]];
+                                  return { ...t, personaOrder: order };
+                                });
+                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                return next;
+                              });
+                            }}
+                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                          >
+                            <ArrowUp size={12} />
+                          </button>
+                          <button
+                            disabled={i === arr.length - 1}
+                            onClick={() => {
+                              setThemeEntries(prev => {
+                                const next = prev.map(t => {
+                                  if (t.localId !== entry.localId) return t;
+                                  const order = [...t.personaOrder];
+                                  [order[i], order[i + 1]] = [order[i + 1], order[i]];
+                                  return { ...t, personaOrder: order };
+                                });
+                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                return next;
+                              });
+                            }}
+                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                          >
+                            <ArrowDown size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    {entry.personaOrder.length === 0 && (
+                      <p className="text-xs text-gray-400 mt-1">ペルソナが選択されていません</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="w-[22px] shrink-0" />
             </div>

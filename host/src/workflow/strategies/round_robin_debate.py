@@ -21,7 +21,7 @@ import uuid
 from ...models import MessageHistory
 from ..persona_selector import select_persona
 from ..input_builder import build_agent_input
-from .base import ThemeStrategy, StrategyContext
+from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 
 class RoundRobinDebateStrategy(ThemeStrategy):
@@ -36,7 +36,7 @@ class RoundRobinDebateStrategy(ThemeStrategy):
 
     def run(self, ctx: StrategyContext) -> str:
         session = ctx.session
-        active = session.active_personas
+        active = get_ordered_personas(session, session.active_personas)
         if not active:
             raise ValueError(f"テーマ '{session.current_theme}' に有効なペルソナがありません")
 

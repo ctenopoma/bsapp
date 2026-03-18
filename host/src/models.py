@@ -69,6 +69,7 @@ class ThemeConfig(BaseModel):
     pre_info: str = ""  # テーマ固有の事前情報 (テンプレート変数使用可)
     theme_strategy: str = ""  # テーマ内ストラテジー (空=sequential)
     strategy_config: Optional[dict] = None  # ストラテジー固有の設定
+    persona_order: List[str] = Field(default_factory=list)  # ペルソナIDの発言順序 (空=ストラテジー任せ)
 
 
 class SessionStartRequest(BaseModel):
