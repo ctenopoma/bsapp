@@ -20,12 +20,20 @@ import {
   PatentSummaryRequest,
   PatentSummaryResponse,
 } from '../types/api';
-import { fetch } from '@tauri-apps/plugin-http';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// Use native fetch (works in both Tauri webview and plain browser)
+const _fetch: typeof fetch = window.fetch.bind(window);
+
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // Viteのビルド時定数: vite build (リリース) では false に置換されコードごと削除される
 const IS_DEV = import.meta.env.DEV;
+
+// Auth token store – set by AuthContext after login
+let _authToken: string | undefined;
+export function setAuthToken(token: string | undefined) {
+  _authToken = token;
+}
 
 function vlog(message: string, ...args: unknown[]): void {
   if (IS_DEV) console.log(message, ...args);
@@ -35,7 +43,7 @@ function vlogError(message: string, ...args: unknown[]): void {
   if (IS_DEV) console.error(message, ...args);
 }
 
-async function request<T>(path: string, options?: any): Promise<T> {
+export async function request<T>(path: string, options?: any): Promise<T> {
   const method = options?.method || 'GET';
   const url = `${BASE_URL}${path}`;
 
@@ -48,11 +56,14 @@ async function request<T>(path: string, options?: any): Promise<T> {
     }
   }
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_authToken) headers['Authorization'] = `Bearer ${_authToken}`;
+
   const startMs = Date.now();
   try {
-    const res = await fetch(url, {
+    const res = await _fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: options?.body,
     });
 
@@ -69,10 +80,6 @@ async function request<T>(path: string, options?: any): Promise<T> {
     const elapsed = Date.now() - startMs;
     vlogError(`[Fetch ERROR] ${method} ${url}  (${elapsed}ms)`);
     vlogError(`  ${err.message || err}`);
-    vlogError(`  ブラウザで確認: ${url}`);
-    if (!BASE_URL.includes('localhost') && !BASE_URL.includes('127.0.0.1')) {
-      vlogError(`  capabilities確認: src-tauri/capabilities/default.json の allow に ${BASE_URL}/** があるか確認`);
-    }
 
     let detail = String(err);
     if (typeof err === 'object' && err !== null) {

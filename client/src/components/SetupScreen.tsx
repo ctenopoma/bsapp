@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig } from '../types/api';
-import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig } from '../lib/db';
+import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig } from '../lib/server-db';
 import { apiStartSession, apiGetSettings } from '../lib/api';
 import { Settings, Play, Plus, Trash2 } from 'lucide-react';
 

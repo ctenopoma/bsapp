@@ -14,7 +14,7 @@ import {
   saveSessionConfig,
   PatentSessionData,
   PatentReportData,
-} from '../lib/db';
+} from '../lib/server-db';
 import { AppSettings, PatentAnalyzeResponse } from '../types/api';
 
 // -------------------------------------------------------------------

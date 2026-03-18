@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { TaskModel } from '../types/api';
-import { getTasks, addTask, updateTask, deleteTask } from '../lib/db';
+import { getTasks, addTask, updateTask, deleteTask } from '../lib/server-db';
 import { Plus, Trash2, Edit2, Save, X } from 'lucide-react';
 
 export default function TasksScreen() {

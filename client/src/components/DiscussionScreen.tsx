@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getMessages, addMessage, getSessionConfig } from '../lib/db';
+import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
 import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
