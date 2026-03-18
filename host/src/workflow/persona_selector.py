@@ -31,9 +31,10 @@ PERSONA_SELECTION_STRATEGY = "round_robin"
 
 
 class PersonaStrategy(str, Enum):
-    RANDOM      = "random"
-    ROUND_ROBIN = "round_robin"
-    ROLE_FIRST  = "role_first"
+    RANDOM       = "random"
+    ROUND_ROBIN  = "round_robin"
+    ROLE_FIRST   = "role_first"
+    CUSTOM_ORDER = "custom_order"
 
 
 # ------------------------------------------------------------------
@@ -70,13 +71,33 @@ def _select_role_first(personas: List[Persona], session: SessionMemory) -> Perso
     return candidates[idx]
 
 
+def _select_custom_order(personas: List[Persona], session: SessionMemory) -> Persona:
+    """ThemeConfig.persona_order に従い、リスト順にペルソナを返す。
+
+    - リスト順に固定で発言させる（ループ時はリスト先頭に戻る）
+    - リストに含まれないペルソナはスキップ
+    - persona_order が空、またはマッチするペルソナが存在しない場合はラウンドロビンにフォールバック
+    """
+    theme_config = session.current_theme_config
+    if not theme_config or not theme_config.persona_order:
+        return _select_round_robin(personas, session)
+
+    ordered = [p for pid in theme_config.persona_order for p in personas if p.id == pid]
+    if not ordered:
+        return _select_round_robin(personas, session)
+
+    idx = session.turn_count_in_theme % len(ordered)
+    return ordered[idx]
+
+
 # ------------------------------------------------------------------
 # ストラテジーマップ (新しいストラテジーはここに追加)
 # ------------------------------------------------------------------
 _STRATEGY_MAP: dict[str, Callable[[List[Persona], SessionMemory], Persona]] = {
-    PersonaStrategy.RANDOM:      _select_random,
-    PersonaStrategy.ROUND_ROBIN: _select_round_robin,
-    PersonaStrategy.ROLE_FIRST:  _select_role_first,
+    PersonaStrategy.RANDOM:       _select_random,
+    PersonaStrategy.ROUND_ROBIN:  _select_round_robin,
+    PersonaStrategy.ROLE_FIRST:   _select_role_first,
+    PersonaStrategy.CUSTOM_ORDER: _select_custom_order,
 }
 
 
@@ -101,12 +122,17 @@ def select_persona(personas: List[Persona], session: SessionMemory) -> Persona:
     Persona
         次に発言させるペルソナ。
     """
-    strategy_fn = _STRATEGY_MAP.get(PERSONA_SELECTION_STRATEGY)
-    if strategy_fn is None:
-        raise ValueError(
-            f"未知の PERSONA_SELECTION_STRATEGY: '{PERSONA_SELECTION_STRATEGY}'. "
-            f"有効な値: {list(_STRATEGY_MAP.keys())}"
-        )
+    # persona_order が設定されている場合は custom_order を自動使用
+    theme_config = session.current_theme_config
+    if theme_config and theme_config.persona_order:
+        strategy_fn = _STRATEGY_MAP[PersonaStrategy.CUSTOM_ORDER]
+    else:
+        strategy_fn = _STRATEGY_MAP.get(PERSONA_SELECTION_STRATEGY)
+        if strategy_fn is None:
+            raise ValueError(
+                f"未知の PERSONA_SELECTION_STRATEGY: '{PERSONA_SELECTION_STRATEGY}'. "
+                f"有効な値: {list(_STRATEGY_MAP.keys())}"
+            )
 
     chosen = strategy_fn(personas, session)
     session.last_persona_id = chosen.id

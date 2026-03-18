@@ -10,8 +10,23 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from ...models import MessageHistory, AgentInput
+from ...models import MessageHistory, AgentInput, Persona
 from ...session_manager import SessionMemory
+
+
+def get_ordered_personas(session: SessionMemory, personas: List[Persona]) -> List[Persona]:
+    """persona_order が設定されている場合、その順序でペルソナリストを並び替えて返す。
+
+    - persona_order が空の場合はそのまま返す
+    - persona_order に含まれないペルソナはスキップ
+    - persona_order のIDが personas に存在しない場合は無視
+    """
+    theme_config = session.current_theme_config
+    if not theme_config or not theme_config.persona_order:
+        return personas
+
+    ordered = [p for pid in theme_config.persona_order for p in personas if p.id == pid]
+    return ordered if ordered else personas
 
 
 @dataclass

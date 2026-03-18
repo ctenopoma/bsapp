@@ -69,6 +69,7 @@ class ThemeConfig(BaseModel):
     pre_info: str = ""  # テーマ固有の事前情報 (テンプレート変数使用可)
     theme_strategy: str = ""  # テーマ内ストラテジー (空=sequential)
     strategy_config: Optional[dict] = None  # ストラテジー固有の設定
+    persona_order: List[str] = Field(default_factory=list)  # ペルソナIDの発言順序 (空=ストラテジー任せ)
 
 
 class SessionStartRequest(BaseModel):
@@ -79,6 +80,8 @@ class SessionStartRequest(BaseModel):
     turns_per_theme: int = 5     # テーマ1つあたりのターン数
     common_theme: str = ""       # 全テーマ共通の上位テーマ
     pre_info: str = ""           # 事前情報 (ファイル内容等)
+    project_flow: str = ""       # マクロフロータイプ (空=waterfall)
+    flow_config: Optional[dict] = None  # フロー固有の設定
 
 
 class SessionStartResponse(BaseModel):

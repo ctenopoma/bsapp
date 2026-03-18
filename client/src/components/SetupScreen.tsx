@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES } from '../types/api';
+import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
 import {
   getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
   getSessionConfig, saveSessionConfig,
@@ -9,7 +9,7 @@ import {
   getTaskPresets, TaskPresetData,
 } from '../lib/server-db';
 import { apiStartSession, apiGetSettings } from '../lib/api';
-import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface ThemeEntry {
   localId: string;
@@ -20,14 +20,17 @@ interface ThemeEntry {
   preInfo: string; // テーマ固有の事前情報
   themeStrategy: string; // テーマ内ストラテジー（空 = sequential）
   strategyConfig: Record<string, any>; // ストラテジー固有の設定
+  personaOrder: string[]; // ペルソナIDの発言順序
+  useCustomOrder: boolean; // カスタム順を使用するか
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {} };
+  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any> }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[] }): ThemeEntry {
+  const personaOrder = e.persona_order ?? [];
   return {
     localId: e.id,
     text: e.text,
@@ -37,6 +40,8 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     preInfo: e.pre_info ?? '',
     themeStrategy: e.theme_strategy ?? '',
     strategyConfig: e.strategy_config ?? {},
+    personaOrder,
+    useCustomOrder: personaOrder.length > 0,
   };
 }
 
@@ -50,6 +55,7 @@ function uiToDb(e: ThemeEntry, i: number) {
     pre_info: e.preInfo,
     theme_strategy: e.themeStrategy,
     strategy_config: e.strategyConfig,
+    persona_order: e.useCustomOrder ? e.personaOrder : [],
     sort_order: i,
   };
 }
@@ -67,6 +73,8 @@ export default function SetupScreen() {
   const [turnsPerTheme, setTurnsPerTheme] = useState(5);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
+  const [projectFlow, setProjectFlow] = useState('waterfall');
+  const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
 
   // テーマプリセット管理
   const [presets, setPresets] = useState<PresetData[]>([]);
@@ -103,6 +111,8 @@ export default function SetupScreen() {
     }).catch(console.error);
     getSessionConfig('common_theme').then(setCommonTheme).catch(console.error);
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
+    getSessionConfig('project_flow').then(v => { if (v) setProjectFlow(v); }).catch(console.error);
+    getSessionConfig('flow_config').then(v => { if (v) try { setFlowConfig(JSON.parse(v)); } catch {} }).catch(console.error);
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
     getPresets().then(setPresets).catch(console.error);
     getPersonaPresets().then(setPersonaPresets).catch(console.error);
@@ -212,6 +222,12 @@ export default function SetupScreen() {
     setPreInfo(preset.pre_info);
     saveSessionConfig('pre_info', preset.pre_info).catch(console.error);
     setTurnsPerTheme(preset.turns_per_theme);
+    const pf = preset.project_flow ?? 'waterfall';
+    setProjectFlow(pf);
+    saveSessionConfig('project_flow', pf).catch(console.error);
+    const fc = preset.flow_config ?? {};
+    setFlowConfig(fc);
+    saveSessionConfig('flow_config', JSON.stringify(fc)).catch(console.error);
   };
 
   // プリセット保存
@@ -223,6 +239,8 @@ export default function SetupScreen() {
       common_theme: commonTheme,
       pre_info: preInfo,
       turns_per_theme: turnsPerTheme,
+      project_flow: projectFlow,
+      flow_config: flowConfig,
     };
     try {
       if (selectedPresetId && presets.some(p => p.id === selectedPresetId)) {
@@ -283,12 +301,13 @@ export default function SetupScreen() {
       pre_info: e.preInfo || undefined,
       theme_strategy: e.themeStrategy || undefined,
       strategy_config: Object.keys(e.strategyConfig).length > 0 ? e.strategyConfig : undefined,
+      persona_order: e.useCustomOrder && e.personaOrder.length > 0 ? e.personaOrder : undefined,
     }));
 
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined });
       const sessionId = res.session_id;
       const title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
       await createSession(sessionId, title);
@@ -408,6 +427,70 @@ export default function SetupScreen() {
             onChange={e => setTurnsPerTheme(parseInt(e.target.value) || 1)}
             className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">プロジェクトフロー <span className="text-gray-400 font-normal text-xs">（テーマ間の進行制御）</span></label>
+          <select
+            value={projectFlow}
+            onChange={e => {
+              const v = e.target.value;
+              setProjectFlow(v);
+              setFlowConfig({});
+              saveSessionConfig('project_flow', v).catch(console.error);
+              saveSessionConfig('flow_config', '{}').catch(console.error);
+            }}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            {PROJECT_FLOWS.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">
+            {PROJECT_FLOWS.find(f => f.id === projectFlow)?.description}
+          </p>
+          {/* フロー固有の設定フィールド */}
+          {(() => {
+            const flow = PROJECT_FLOWS.find(f => f.id === projectFlow);
+            if (!flow || flow.configFields.length === 0) return null;
+            return (
+              <div className="mt-2 flex flex-wrap gap-3">
+                {flow.configFields.map(field => (
+                  <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
+                    <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
+                    {field.type === 'number' && (
+                      <input
+                        type="number"
+                        min={field.min}
+                        max={field.max}
+                        value={flowConfig[field.key] ?? field.default}
+                        onChange={ev => {
+                          const val = parseInt(ev.target.value);
+                          const v = isNaN(val) ? field.default : val;
+                          const next = { ...flowConfig, [field.key]: v };
+                          setFlowConfig(next);
+                          saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                        }}
+                        className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    )}
+                    {field.type === 'text' && (
+                      <input
+                        type="text"
+                        value={flowConfig[field.key] ?? field.default}
+                        placeholder={field.placeholder ?? ''}
+                        onChange={ev => {
+                          const next = { ...flowConfig, [field.key]: ev.target.value };
+                          setFlowConfig(next);
+                          saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                        }}
+                        className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -535,8 +618,8 @@ export default function SetupScreen() {
                   return (
                     <div className="mt-2 flex flex-wrap gap-3">
                       {strategy.configFields.map(field => (
-                        <div key={field.key} className="flex items-center gap-2">
-                          <label className="text-xs text-gray-500">{field.label}:</label>
+                        <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
+                          <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
                           {field.type === 'number' && (
                             <input
                               type="number"
@@ -544,10 +627,11 @@ export default function SetupScreen() {
                               max={field.max}
                               value={entry.strategyConfig[field.key] ?? field.default}
                               onChange={ev => {
-                                const val = parseInt(ev.target.value) || field.default;
+                                const val = parseInt(ev.target.value);
+                                const v = isNaN(val) ? field.default : val;
                                 setThemeEntries(prev => {
                                   const next = prev.map(t => t.localId === entry.localId
-                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
+                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: v } }
                                     : t
                                   );
                                   saveThemeEntries(next.map(uiToDb)).catch(console.error);
@@ -557,11 +641,119 @@ export default function SetupScreen() {
                               className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                             />
                           )}
+                          {field.type === 'text' && (
+                            <input
+                              type="text"
+                              value={entry.strategyConfig[field.key] ?? field.default}
+                              placeholder={field.placeholder ?? ''}
+                              onChange={ev => {
+                                const val = ev.target.value;
+                                setThemeEntries(prev => {
+                                  const next = prev.map(t => t.localId === entry.localId
+                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
+                                    : t
+                                  );
+                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                  return next;
+                                });
+                              }}
+                              className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
                   );
                 })()}
+              </div>
+              <div className="w-[22px] shrink-0" />
+            </div>
+
+            {/* 発言順設定 */}
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                Order
+              </span>
+              <div className="flex-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={entry.useCustomOrder}
+                    onChange={e => {
+                      const enabled = e.target.checked;
+                      setThemeEntries(prev => {
+                        const next = prev.map(t => {
+                          if (t.localId !== entry.localId) return t;
+                          // 有効化時: 現在のテーマの有効ペルソナでリストを初期化
+                          const initOrder = enabled && t.personaOrder.length === 0
+                            ? personas
+                                .filter(p => activePersonaIds.has(p.id) && isActive(t, p.id))
+                                .map(p => p.id)
+                            : t.personaOrder;
+                          return { ...t, useCustomOrder: enabled, personaOrder: initOrder };
+                        });
+                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                        return next;
+                      });
+                    }}
+                    className="w-3.5 h-3.5 accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-600">カスタム順を使用</span>
+                </label>
+                {entry.useCustomOrder && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {entry.personaOrder
+                      .map(pid => personas.find(p => p.id === pid))
+                      .filter((p): p is typeof personas[0] => p !== undefined)
+                      .map((p, i, arr) => (
+                        <div key={p.id} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 w-5 text-right">{i + 1}.</span>
+                          <span className="text-xs font-medium text-gray-700 flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                            {p.name}
+                          </span>
+                          <button
+                            disabled={i === 0}
+                            onClick={() => {
+                              setThemeEntries(prev => {
+                                const next = prev.map(t => {
+                                  if (t.localId !== entry.localId) return t;
+                                  const order = [...t.personaOrder];
+                                  [order[i - 1], order[i]] = [order[i], order[i - 1]];
+                                  return { ...t, personaOrder: order };
+                                });
+                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                return next;
+                              });
+                            }}
+                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                          >
+                            <ArrowUp size={12} />
+                          </button>
+                          <button
+                            disabled={i === arr.length - 1}
+                            onClick={() => {
+                              setThemeEntries(prev => {
+                                const next = prev.map(t => {
+                                  if (t.localId !== entry.localId) return t;
+                                  const order = [...t.personaOrder];
+                                  [order[i], order[i + 1]] = [order[i + 1], order[i]];
+                                  return { ...t, personaOrder: order };
+                                });
+                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                return next;
+                              });
+                            }}
+                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                          >
+                            <ArrowDown size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    {entry.personaOrder.length === 0 && (
+                      <p className="text-xs text-gray-400 mt-1">ペルソナが選択されていません</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="w-[22px] shrink-0" />
             </div>

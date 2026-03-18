@@ -13,6 +13,8 @@ workflow パッケージ
 - turn_runner.py         : 1テーマ分のターン実行ループ (ストラテジーディスパッチャー)
 - template_resolver.py   : 事前情報内のテンプレート変数解決
 - strategies/            : テーマ内ストラテジー (シーケンシャル, 並列, ラウンドロビン等)
+- orchestrator.py        : マクロフロー・ディスパッチャー (テーマ間の進行制御)
+- flows/                 : マクロワークフロー (ウォーターフォール, ステージゲート等)
 """
 
 from .persona_selector import select_persona
@@ -20,6 +22,7 @@ from .input_builder import build_agent_input
 from .prompt_builder import DEFAULT_OUTPUT_FORMAT, AGENT_PROMPT_TEMPLATE, SUMMARY_PROMPT_TEMPLATE
 from .summarizer import summarize_theme
 from .turn_runner import run_one_theme
+from .orchestrator import run_full_session
 from .strategies import STRATEGY_MAP, get_strategy
 
 __all__ = [
@@ -30,6 +33,7 @@ __all__ = [
     "SUMMARY_PROMPT_TEMPLATE",
     "summarize_theme",
     "run_one_theme",
+    "run_full_session",
     "STRATEGY_MAP",
     "get_strategy",
 ]

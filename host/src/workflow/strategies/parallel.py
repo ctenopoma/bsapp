@@ -19,7 +19,7 @@ from typing import List
 
 from ...models import MessageHistory, AgentInput, Persona
 from ..input_builder import build_agent_input
-from .base import ThemeStrategy, StrategyContext
+from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 
 # ファシリテーター用の集約プロンプトテンプレート
@@ -48,7 +48,7 @@ class ParallelStrategy(ThemeStrategy):
 
     def run(self, ctx: StrategyContext) -> str:
         session = ctx.session
-        active = session.active_personas
+        active = get_ordered_personas(session, session.active_personas)
         if not active:
             raise ValueError(f"テーマ '{session.current_theme}' に有効なペルソナがありません")
 

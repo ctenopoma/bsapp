@@ -21,6 +21,9 @@ class SessionMemory:
         # 前回の選択 (テーマ切り替え時にリセット)
         self.last_persona_id: Optional[str] = None
         self.last_task_id: Optional[str] = None
+        # マクロフロー設定
+        self.project_flow: str = request.project_flow
+        self.flow_config: dict = request.flow_config or {}
 
     @property
     def current_theme_config(self) -> ThemeConfig | None:

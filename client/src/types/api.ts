@@ -43,6 +43,7 @@ export interface ThemeConfig {
   pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
   theme_strategy?: string; // テーマ内ストラテジー（空=sequential）
   strategy_config?: Record<string, any>; // ストラテジー固有の設定
+  persona_order?: string[]; // ペルソナIDの発言順序（空=ストラテジー任せ）
 }
 
 // テーマ内ストラテジーの定義
@@ -56,11 +57,12 @@ export interface ThemeStrategyOption {
 export interface ThemeStrategyConfigField {
   key: string;
   label: string;
-  type: 'number' | 'select';
+  type: 'number' | 'select' | 'text';
   default: any;
   min?: number;
   max?: number;
   options?: { value: any; label: string }[];
+  placeholder?: string;
 }
 
 // 利用可能なストラテジー定義
@@ -100,6 +102,398 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
       },
     ],
   },
+  {
+    id: 'hierarchical',
+    name: '階層型（計画・実行・反省）',
+    description: 'マネージャーが計画を立て、ワーカーが実行し、評価・修正を繰り返して品質を高めます。',
+    configFields: [
+      {
+        key: 'manager_index',
+        label: 'マネージャー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_revision_loops',
+        label: '最大修正ループ数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'pass_condition',
+        label: '合格判定の追加指示（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実現可能性と具体性の両方が満たされていること',
+      },
+    ],
+  },
+  {
+    id: 'adversarial',
+    name: '敵対的・レッドチーム（生成・批判）',
+    description: '生成役が提案し、批判役がダメ出し、修正を繰り返して提案の質を高めます。',
+    configFields: [
+      {
+        key: 'generator_index',
+        label: '生成役（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'critic_index',
+        label: '批判役（先頭からの番号）',
+        type: 'number',
+        default: 1,
+        min: 0,
+      },
+      {
+        key: 'max_rounds',
+        label: '最大往復数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'critic_perspective',
+        label: '批判の観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: セキュリティ面から、コスト面から',
+      },
+    ],
+  },
+  {
+    id: 'judge_jury',
+    name: '陪審員・裁判官（Judge & Jury）',
+    description: 'ディベーター間で議論し、最後に裁判官が全履歴を読んで最終判定を下します。',
+    configFields: [
+      {
+        key: 'judge_index',
+        label: '裁判官（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'debate_turns',
+        label: 'ディベートのターン数',
+        type: 'number',
+        default: 6,
+        min: 1,
+        max: 20,
+      },
+      {
+        key: 'evaluation_criteria',
+        label: '評価基準・観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実現可能性・独自性・社会的インパクトの3点で評価',
+      },
+    ],
+  },
+  {
+    id: 'dynamic_routing',
+    name: '動的ルーティング（司会者主導）',
+    description: '司会者が文脈を読んでJSONで次の発言者を動的に指名します。',
+    configFields: [
+      {
+        key: 'router_index',
+        label: '司会者（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_turns',
+        label: '最大ターン数',
+        type: 'number',
+        default: 10,
+        min: 1,
+        max: 30,
+      },
+      {
+        key: 'end_condition',
+        label: '終了条件の説明（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全員が同意した場合、または3つ以上の具体案が出た場合',
+      },
+    ],
+  },
+  {
+    id: 'map_reduce',
+    name: '分割統治（Map-Reduce）',
+    description: 'プランナーがタスクを分割し、ワーカーが個別処理し、サマライザーが統合します。',
+    configFields: [
+      {
+        key: 'planner_index',
+        label: 'プランナー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'summarizer_index',
+        label: 'サマライザー（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'max_subtasks',
+        label: '最大サブタスク数',
+        type: 'number',
+        default: 5,
+        min: 1,
+        max: 10,
+      },
+    ],
+  },
+  {
+    id: 'dynamic_generation',
+    name: '動的エージェント生成',
+    description: 'メタエージェントが議題に最適なペルソナをその場で生成し、議論を実行します。',
+    configFields: [
+      {
+        key: 'meta_agent_index',
+        label: 'メタエージェント（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_generated',
+        label: '最大生成ペルソナ数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'generation_guideline',
+        label: '編成指針（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 技術・法律・ビジネスの専門家を含めること',
+      },
+    ],
+  },
+];
+
+// マクロフロー（テーマ間の進行制御）定義
+export interface ProjectFlowOption {
+  id: string;
+  name: string;
+  description: string;
+  configFields: ThemeStrategyConfigField[];
+}
+
+export const PROJECT_FLOWS: ProjectFlowOption[] = [
+  {
+    id: 'waterfall',
+    name: 'ウォーターフォール型（デフォルト）',
+    description: 'テーマを定義順に1つずつ実行します。',
+    configFields: [],
+  },
+  {
+    id: 'stage_gate',
+    name: 'ステージゲート型',
+    description: '各テーマ完了後にゲートキーパーが品質チェックし、不合格なら差し戻します。',
+    configFields: [
+      {
+        key: 'gatekeeper_index',
+        label: 'ゲートキーパー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_revisions',
+        label: '最大差し戻し回数',
+        type: 'number',
+        default: 2,
+        min: 0,
+        max: 10,
+      },
+      {
+        key: 'pass_condition',
+        label: '通過条件（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 具体的なアクションアイテムが3つ以上含まれること',
+      },
+    ],
+  },
+  {
+    id: 'agile_sprint',
+    name: 'アジャイル/スプリント型',
+    description: '全テーマをスプリントとして複数回繰り返し、完成判定者が仕上がりを評価します。',
+    configFields: [
+      {
+        key: 'sprint_count',
+        label: 'スプリント回数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'completion_judge_index',
+        label: '完成判定者（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'completion_criteria',
+        label: '完成判定の基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全テーマで実装可能な具体案が揃っていること',
+      },
+    ],
+  },
+  {
+    id: 'conditional',
+    name: '条件分岐/ツリー型',
+    description: 'テーマの結論によってルーターが次のテーマを動的に選択します。',
+    configFields: [
+      {
+        key: 'router_index',
+        label: 'ルーター（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_total_themes',
+        label: '最大実行テーマ総数（0=テーマ数×3）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'routing_rules',
+        label: '分岐条件ルール（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 問題が特定された場合は解決策テーマへ、合意が得られた場合は実装テーマへ',
+      },
+    ],
+  },
+  {
+    id: 'v_shape',
+    name: 'V字型（実行＆逆順レビュー）',
+    description: '全テーマを順番に実行した後、逆順でレビューして品質を担保します。',
+    configFields: [
+      {
+        key: 'reviewer_index',
+        label: 'レビュアー（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'review_focus',
+        label: 'レビューの観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 前半の要件定義と後半の実装内容の整合性を確認',
+      },
+    ],
+  },
+  {
+    id: 'game_theory',
+    name: 'ゲーム理論/対立型（陣営間ディベート）',
+    description: '提案陣営と批判陣営が対立的に議論し、合意形成者が最終案を導きます。',
+    configFields: [
+      {
+        key: 'split_index',
+        label: '陣営分割（この番号より前が提案陣営）',
+        type: 'number',
+        default: 1,
+        min: 1,
+      },
+      {
+        key: 'rounds',
+        label: 'ラウンド数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'agreement_judge_index',
+        label: '合意形成者（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'agreement_criteria',
+        label: '合意の基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実装コストと効果のバランスが取れた案であること',
+      },
+    ],
+  },
+  {
+    id: 'blackboard',
+    name: 'ブラックボード型（共有黒板）',
+    description: 'コーディネーターが黒板状態を読み、次の担当エージェントを動的に指名します。',
+    configFields: [
+      {
+        key: 'coordinator_index',
+        label: 'コーディネーター（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_total_turns',
+        label: '最大ターン数（0=自動）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'goal_condition',
+        label: '終了条件（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全テーマについて具体的なアクションアイテムが出揃った時点',
+      },
+    ],
+  },
+  {
+    id: 'tournament',
+    name: 'トーナメント/進化型（並列コンペ）',
+    description: '同じプロジェクトを複数回実行し、審査員が最良の成果物を選びます。',
+    configFields: [
+      {
+        key: 'num_lanes',
+        label: '並列レーン数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 5,
+      },
+      {
+        key: 'judge_index',
+        label: '審査員（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'evaluation_criteria',
+        label: '審査基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 独自性・実現可能性・具体性の3点で評価',
+      },
+    ],
+  },
 ];
 
 // Session API Requests
@@ -111,6 +505,8 @@ export interface SessionStartRequest {
   turns_per_theme?: number;
   common_theme?: string;
   pre_info?: string;
+  project_flow?: string;
+  flow_config?: Record<string, any>;
 }
 
 export interface SessionStartResponse {

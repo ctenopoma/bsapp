@@ -15,6 +15,9 @@ export interface ThemeEntry {
   output_format: string;
   turns_per_theme?: number | null; // テーマごとの発言回数（null=デフォルト）
   pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
+  theme_strategy?: string; // テーマ内ストラテジー
+  strategy_config?: Record<string, any>; // ストラテジー固有の設定
+  persona_order?: string[]; // ペルソナIDの発言順序
   sort_order: number;
 }
 
@@ -153,6 +156,8 @@ export interface PresetData {
   common_theme: string;
   pre_info: string;
   turns_per_theme: number;
+  project_flow?: string;
+  flow_config?: Record<string, any>;
 }
 
 export async function getPresets(): Promise<PresetData[]> {
