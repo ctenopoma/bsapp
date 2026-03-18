@@ -39,6 +39,8 @@ export interface ThemeConfig {
   theme: string;
   persona_ids: string[];  // 空=全ペルソナが有効
   output_format?: string; // 空=デフォルトフォーマットを使用
+  turns_per_theme?: number; // テーマごとの発言回数（未指定=セッションのデフォルト値）
+  pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
 }
 
 // Session API Requests

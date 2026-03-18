@@ -12,7 +12,7 @@ from sqlalchemy import select, delete
 
 from src.auth import require_approved
 from src.database import get_db
-from src.db_models import User, Persona, Task, Session, Message, SessionConfig
+from src.db_models import User, Persona, Task, Session, Message, SessionConfig, SessionPreset
 from src.db_models import PatentSession, PatentReport, PatentSummary
 
 router = APIRouter()
@@ -211,6 +211,106 @@ async def save_config(
         db.add(SessionConfig(user_id=user.id, key=key, value=body.value))
     await db.commit()
     return {"key": key, "value": body.value}
+
+
+# ─────────────────────────────────────────────
+# Session Presets
+# ─────────────────────────────────────────────
+
+class PresetIn(BaseModel):
+    id: str
+    name: str
+    theme_entries: str = "[]"      # JSON string
+    common_theme: str = ""
+    pre_info: str = ""
+    active_persona_ids: str = ""   # comma-separated
+    active_task_ids: str = ""      # comma-separated
+    turns_per_theme: int = 5
+
+
+class PresetOut(PresetIn):
+    pass
+
+
+@router.get("/presets", response_model=list[PresetOut])
+async def list_presets(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(SessionPreset).where(SessionPreset.user_id == user.id).order_by(SessionPreset.sort_order, SessionPreset.created_at)
+    )
+    rows = result.scalars().all()
+    return [PresetOut(
+        id=r.id, name=r.name, theme_entries=r.theme_entries, common_theme=r.common_theme,
+        pre_info=r.pre_info, active_persona_ids=r.active_persona_ids, active_task_ids=r.active_task_ids,
+        turns_per_theme=r.turns_per_theme,
+    ) for r in rows]
+
+
+@router.post("/presets", response_model=PresetOut, status_code=201)
+async def create_preset(
+    body: PresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(SessionPreset).where(SessionPreset.user_id == user.id).order_by(SessionPreset.sort_order.desc())
+    )
+    last = result.scalars().first()
+    next_order = (last.sort_order + 1) if last else 0
+    p = SessionPreset(
+        id=body.id, user_id=user.id, name=body.name,
+        theme_entries=body.theme_entries, common_theme=body.common_theme,
+        pre_info=body.pre_info, active_persona_ids=body.active_persona_ids,
+        active_task_ids=body.active_task_ids,
+        turns_per_theme=body.turns_per_theme, sort_order=next_order,
+    )
+    db.add(p)
+    await db.commit()
+    return PresetOut(
+        id=p.id, name=p.name, theme_entries=p.theme_entries, common_theme=p.common_theme,
+        pre_info=p.pre_info, active_persona_ids=p.active_persona_ids,
+        active_task_ids=p.active_task_ids, turns_per_theme=p.turns_per_theme,
+    )
+
+
+@router.put("/presets/{preset_id}", response_model=PresetOut)
+async def update_preset(
+    preset_id: str,
+    body: PresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    p = await db.get(SessionPreset, preset_id)
+    if not p or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    p.name = body.name
+    p.theme_entries = body.theme_entries
+    p.common_theme = body.common_theme
+    p.pre_info = body.pre_info
+    p.active_persona_ids = body.active_persona_ids
+    p.active_task_ids = body.active_task_ids
+    p.turns_per_theme = body.turns_per_theme
+    await db.commit()
+    return PresetOut(
+        id=p.id, name=p.name, theme_entries=p.theme_entries, common_theme=p.common_theme,
+        pre_info=p.pre_info, active_persona_ids=p.active_persona_ids,
+        active_task_ids=p.active_task_ids, turns_per_theme=p.turns_per_theme,
+    )
+
+
+@router.delete("/presets/{preset_id}", status_code=204)
+async def delete_preset(
+    preset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    p = await db.get(SessionPreset, preset_id)
+    if not p or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    await db.delete(p)
+    await db.commit()
 
 
 # ─────────────────────────────────────────────

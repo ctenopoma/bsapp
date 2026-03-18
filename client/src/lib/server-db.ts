@@ -13,6 +13,8 @@ export interface ThemeEntry {
   text: string;
   persona_ids: string; // comma-separated
   output_format: string;
+  turns_per_theme?: number | null; // テーマごとの発言回数（null=デフォルト）
+  pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
   sort_order: number;
 }
 
@@ -138,6 +140,37 @@ export async function getThemeEntries(): Promise<ThemeEntry[]> {
 
 export async function saveThemeEntries(entries: ThemeEntry[]): Promise<void> {
   await saveSessionConfig(THEME_CONFIG_KEY, JSON.stringify(entries));
+}
+
+// ─────────────────────────────────────────────
+// Session Presets
+// ─────────────────────────────────────────────
+
+export interface PresetData {
+  id: string;
+  name: string;
+  theme_entries: string;      // JSON string
+  common_theme: string;
+  pre_info: string;
+  active_persona_ids: string; // comma-separated
+  active_task_ids: string;    // comma-separated
+  turns_per_theme: number;
+}
+
+export async function getPresets(): Promise<PresetData[]> {
+  return _req<PresetData[]>('/api/data/presets');
+}
+
+export async function createPreset(preset: PresetData): Promise<void> {
+  await _req('/api/data/presets', { method: 'POST', body: JSON.stringify(preset) });
+}
+
+export async function updatePreset(preset: PresetData): Promise<void> {
+  await _req(`/api/data/presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
+}
+
+export async function deletePreset(id: string): Promise<void> {
+  await _req(`/api/data/presets/${id}`, { method: 'DELETE' });
 }
 
 // ─────────────────────────────────────────────

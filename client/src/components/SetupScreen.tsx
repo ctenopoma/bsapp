@@ -1,28 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig } from '../types/api';
-import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig } from '../lib/server-db';
+import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig, getPresets, createPreset, updatePreset, deletePreset, PresetData } from '../lib/server-db';
 import { apiStartSession, apiGetSettings } from '../lib/api';
-import { Settings, Play, Plus, Trash2 } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen } from 'lucide-react';
 
 interface ThemeEntry {
   localId: string;
   text: string;
   personaIds: Set<string>; // 空 = 全ペルソナ参加
   outputFormat: string;
+  turnsPerTheme: number | null; // null = セッションのデフォルト値を使用
+  preInfo: string; // テーマ固有の事前情報
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '' };
+  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '' };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string }): ThemeEntry {
   return {
     localId: e.id,
     text: e.text,
     personaIds: e.persona_ids ? new Set(e.persona_ids.split(',').filter(Boolean)) : new Set(),
     outputFormat: e.output_format ?? '',
+    turnsPerTheme: e.turns_per_theme ?? null,
+    preInfo: e.pre_info ?? '',
   };
 }
 
@@ -32,6 +36,8 @@ function uiToDb(e: ThemeEntry, i: number) {
     text: e.text,
     persona_ids: [...e.personaIds].join(','),
     output_format: e.outputFormat,
+    turns_per_theme: e.turnsPerTheme,
+    pre_info: e.preInfo,
     sort_order: i,
   };
 }
@@ -42,12 +48,19 @@ export default function SetupScreen() {
   const [allTasks, setAllTasks] = useState<TaskModel[]>([]);
   const [themeEntries, setThemeEntries] = useState<ThemeEntry[]>([newEntry()]);
   const themeTextRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const [activePersonaIds, setActivePersonaIds] = useState<Set<string>>(new Set());
   const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
   const [commonTheme, setCommonTheme] = useState('');
   const [preInfo, setPreInfo] = useState('');
   const [turnsPerTheme, setTurnsPerTheme] = useState(5);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
+
+  // プリセット管理
+  const [presets, setPresets] = useState<PresetData[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [presetName, setPresetName] = useState('');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
@@ -56,7 +69,10 @@ export default function SetupScreen() {
   };
 
   useEffect(() => {
-    getPersonas().then(setPersonas).catch(console.error);
+    getPersonas().then(p => {
+      setPersonas(p);
+      setActivePersonaIds(new Set(p.map(x => x.id)));
+    }).catch(console.error);
     getTasks().then(tasks => {
       setAllTasks(tasks);
       setActiveTaskIds(new Set(tasks.map(t => t.id)));
@@ -70,6 +86,7 @@ export default function SetupScreen() {
     getSessionConfig('common_theme').then(setCommonTheme).catch(console.error);
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
+    getPresets().then(setPresets).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -105,6 +122,13 @@ export default function SetupScreen() {
       return next;
     });
 
+  const updateThemePreInfo = (localId: string, preInfo: string) =>
+    setThemeEntries(prev => {
+      const next = prev.map(e => e.localId === localId ? { ...e, preInfo } : e);
+      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+      return next;
+    });
+
   const togglePersona = (localId: string, personaId: string) => {
     setThemeEntries(prev => {
       const next = prev.map(e => {
@@ -124,6 +148,15 @@ export default function SetupScreen() {
   const isActive = (entry: ThemeEntry, personaId: string) =>
     entry.personaIds.size === 0 || entry.personaIds.has(personaId);
 
+  const togglePersonaActive = (personaId: string) => {
+    setActivePersonaIds(prev => {
+      const next = new Set(prev);
+      if (next.has(personaId)) next.delete(personaId);
+      else next.add(personaId);
+      return next;
+    });
+  };
+
   const toggleTask = (taskId: string) => {
     setActiveTaskIds(prev => {
       const next = new Set(prev);
@@ -131,6 +164,81 @@ export default function SetupScreen() {
       else next.add(taskId);
       return next;
     });
+  };
+
+  // プリセット読み込み
+  const loadPreset = (presetId: string) => {
+    const preset = presets.find(p => p.id === presetId);
+    if (!preset) {
+      setSelectedPresetId('');
+      return;
+    }
+    setSelectedPresetId(presetId);
+    try {
+      const entries = JSON.parse(preset.theme_entries) as Array<{ id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; sort_order?: number }>;
+      if (entries.length > 0) {
+        setThemeEntries(entries.map(dbToUi));
+        saveThemeEntries(entries.map((e, i) => ({ ...e, sort_order: e.sort_order ?? i }))).catch(console.error);
+      }
+    } catch { /* ignore parse error */ }
+    setCommonTheme(preset.common_theme);
+    saveSessionConfig('common_theme', preset.common_theme).catch(console.error);
+    setPreInfo(preset.pre_info);
+    saveSessionConfig('pre_info', preset.pre_info).catch(console.error);
+    setTurnsPerTheme(preset.turns_per_theme);
+    if (preset.active_persona_ids) {
+      setActivePersonaIds(new Set(preset.active_persona_ids.split(',').filter(Boolean)));
+    } else {
+      setActivePersonaIds(new Set(personas.map(p => p.id)));
+    }
+    if (preset.active_task_ids) {
+      setActiveTaskIds(new Set(preset.active_task_ids.split(',').filter(Boolean)));
+    } else {
+      setActiveTaskIds(new Set(allTasks.map(t => t.id)));
+    }
+  };
+
+  // プリセット保存
+  const saveCurrentAsPreset = async (name: string) => {
+    const data: PresetData = {
+      id: selectedPresetId || crypto.randomUUID(),
+      name,
+      theme_entries: JSON.stringify(themeEntries.map(uiToDb)),
+      common_theme: commonTheme,
+      pre_info: preInfo,
+      active_persona_ids: [...activePersonaIds].join(','),
+      active_task_ids: [...activeTaskIds].join(','),
+      turns_per_theme: turnsPerTheme,
+    };
+    try {
+      if (selectedPresetId && presets.some(p => p.id === selectedPresetId)) {
+        await updatePreset(data);
+        setPresets(prev => prev.map(p => p.id === data.id ? data : p));
+      } else {
+        data.id = crypto.randomUUID();
+        await createPreset(data);
+        setPresets(prev => [...prev, data]);
+        setSelectedPresetId(data.id);
+      }
+      setShowSaveDialog(false);
+      setPresetName('');
+    } catch (e: any) {
+      setError(e.message || 'Failed to save preset');
+    }
+  };
+
+  // プリセット削除
+  const handleDeletePreset = async () => {
+    if (!selectedPresetId) return;
+    const preset = presets.find(p => p.id === selectedPresetId);
+    if (!preset || !confirm(`プリセット「${preset.name}」を削除しますか？`)) return;
+    try {
+      await deletePreset(selectedPresetId);
+      setPresets(prev => prev.filter(p => p.id !== selectedPresetId));
+      setSelectedPresetId('');
+    } catch (e: any) {
+      setError(e.message || 'Failed to delete preset');
+    }
   };
 
   const handleStart = async () => {
@@ -142,19 +250,23 @@ export default function SetupScreen() {
       setError('タスクを1つ以上選択してください。'); return;
     }
 
-    // 全テーマで使われるペルソナのunionを送信
+    // activePersonaIdsでフィルタした上で、テーマごとのunionを送信
+    const activePersonas = personas.filter(p => activePersonaIds.has(p.id));
+    if (activePersonas.length === 0) { setError('参加するペルソナを1つ以上選択してください。'); return; }
     const usedIds = new Set<string>();
     valid.forEach(e => {
-      if (e.personaIds.size === 0) personas.forEach(p => usedIds.add(p.id));
-      else e.personaIds.forEach(id => usedIds.add(id));
+      if (e.personaIds.size === 0) activePersonas.forEach(p => usedIds.add(p.id));
+      else e.personaIds.forEach(id => { if (activePersonaIds.has(id)) usedIds.add(id); });
     });
-    const usedPersonas = personas.filter(p => usedIds.has(p.id));
+    const usedPersonas = activePersonas.filter(p => usedIds.has(p.id));
     if (usedPersonas.length === 0) { setError('参加するペルソナがありません。'); return; }
 
     const themes: ThemeConfig[] = valid.map(e => ({
       theme: e.text.trim(),
       persona_ids: [...e.personaIds],
       output_format: e.outputFormat,
+      turns_per_theme: e.turnsPerTheme ?? undefined,
+      pre_info: e.preInfo || undefined,
     }));
 
     try {
@@ -181,6 +293,70 @@ export default function SetupScreen() {
         <p className="text-gray-600 mt-2">テーマごとに参加するペルソナを設定し、割り当てるタスクを選んでください。</p>
       </div>
 
+      {/* プリセット選択 */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          <FolderOpen size={16} className="text-gray-500 shrink-0" />
+          <label className="text-sm font-bold text-gray-700 shrink-0">プリセット</label>
+          <select
+            value={selectedPresetId}
+            onChange={e => loadPreset(e.target.value)}
+            className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            <option value="">-- 選択してください --</option>
+            {presets.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              const current = presets.find(p => p.id === selectedPresetId);
+              setPresetName(current?.name || '');
+              setShowSaveDialog(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-300 rounded-lg transition-colors"
+          >
+            <Save size={14} />
+            {selectedPresetId ? '上書き保存' : '新規保存'}
+          </button>
+          {selectedPresetId && (
+            <button
+              onClick={handleDeletePreset}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"
+            >
+              <Trash2 size={14} />
+              削除
+            </button>
+          )}
+        </div>
+        {showSaveDialog && (
+          <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+            <input
+              type="text"
+              value={presetName}
+              onChange={e => setPresetName(e.target.value)}
+              placeholder="プリセット名を入力..."
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && presetName.trim()) saveCurrentAsPreset(presetName.trim()); }}
+            />
+            <button
+              onClick={() => presetName.trim() && saveCurrentAsPreset(presetName.trim())}
+              disabled={!presetName.trim()}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg transition-colors"
+            >
+              保存
+            </button>
+            <button
+              onClick={() => { setShowSaveDialog(false); setPresetName(''); }}
+              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              キャンセル
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 共通テーマ & 事前情報 */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6 flex flex-col gap-4">
         <div>
@@ -194,14 +370,17 @@ export default function SetupScreen() {
           />
         </div>
         <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">事前情報 <span className="text-gray-400 font-normal text-xs">（全エージェントに共有する背景情報）</span></label>
+          <label className="block text-sm font-bold text-gray-700 mb-1">事前情報 <span className="text-gray-400 font-normal text-xs">（全エージェントに共有する背景情報・テンプレート変数使用可）</span></label>
           <textarea
             value={preInfo}
             onChange={e => { setPreInfo(e.target.value); saveSessionConfig('pre_info', e.target.value).catch(console.error); }}
-            placeholder="議論の前提となる情報を入力（ファイル内容の貼り付けなど）"
+            placeholder={"議論の前提となる情報を入力（ファイル内容の貼り付けなど）\nテンプレート変数例: {{theme1_summary}}"}
             rows={4}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
           />
+          <p className="text-xs text-gray-400 mt-1">
+            変数: <code className="bg-gray-100 px-1 rounded">{`{{themeN_summary}}`}</code> 要約 / <code className="bg-gray-100 px-1 rounded">{`{{themeN_messages}}`}</code> 全発言 / <code className="bg-gray-100 px-1 rounded">{`{{themeN_agent:名前}}`}</code> 特定エージェント（N=テーマ番号, 1始まり）
+          </p>
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">ターン数 <span className="text-gray-400 font-normal text-xs">（1テーマあたり / デフォルトはSettings画面で変更）</span></label>
@@ -261,13 +440,57 @@ export default function SetupScreen() {
               <div className="w-[22px] shrink-0" />
             </div>
 
-            {/* ペルソナ選択チップ */}
+            {/* テーマ固有の事前情報 */}
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                Pre-Info
+              </span>
+              <div className="flex-1">
+                <textarea
+                  value={entry.preInfo}
+                  onChange={e => updateThemePreInfo(entry.localId, e.target.value)}
+                  placeholder="テーマ固有の事前情報（テンプレート変数使用可）"
+                  rows={2}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  変数: <code className="bg-gray-100 px-1 rounded">{`{{theme1_summary}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_messages}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_agent:名前}}`}</code> （番号は1始まり）
+                </p>
+              </div>
+              <div className="w-[22px] shrink-0" />
+            </div>
+
+            {/* ターン数 */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">
+                Turns
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={entry.turnsPerTheme ?? ''}
+                onChange={e => {
+                  const v = e.target.value === '' ? null : parseInt(e.target.value) || 1;
+                  setThemeEntries(prev => {
+                    const next = prev.map(t => t.localId === entry.localId ? { ...t, turnsPerTheme: v } : t);
+                    saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                    return next;
+                  });
+                }}
+                placeholder={String(turnsPerTheme)}
+                className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+              <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
+            </div>
+
+            {/* ペルソナ選択チップ（アクティブなペルソナのみ表示） */}
             <div className="flex items-center gap-2 flex-wrap pl-[4.75rem]">
               <span className="text-xs text-gray-400">参加:</span>
-              {personas.length === 0 ? (
-                <span className="text-xs text-red-400">ペルソナがありません</span>
+              {personas.filter(p => activePersonaIds.has(p.id)).length === 0 ? (
+                <span className="text-xs text-red-400">ペルソナが選択されていません</span>
               ) : (
-                personas.map(p => {
+                personas.filter(p => activePersonaIds.has(p.id)).map(p => {
                   const active = isActive(entry, p.id);
                   return (
                     <button
@@ -296,6 +519,31 @@ export default function SetupScreen() {
         <Plus size={15} /> テーマを追加
       </button>
 
+      {/* ペルソナ選択 */}
+      {personas.length > 0 && (
+        <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-3">使用するペルソナの選択</h2>
+          <p className="text-sm text-gray-500 mb-4">このセッションで使用するペルソナを選択してください。</p>
+          <div className="flex flex-wrap gap-2">
+            {personas.map(p => (
+              <button
+                key={p.id}
+                onClick={() => togglePersonaActive(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  activePersonaIds.has(p.id)
+                    ? 'bg-blue-100 border-blue-400 text-blue-700'
+                    : 'bg-gray-100 border-gray-200 text-gray-400'
+                }`}
+                title={p.role}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* タスク選択 */}
       {allTasks.length > 0 && (
         <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-bold text-gray-800 mb-3">使用するタスクの選択</h2>
@@ -328,7 +576,7 @@ export default function SetupScreen() {
       <div className="mt-8 flex justify-end">
         <button
           onClick={handleStart}
-          disabled={isStarting || personas.length === 0}
+          disabled={isStarting || activePersonaIds.size === 0}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-md transition-all transform hover:scale-[1.02]"
         >
           <Play size={24} />

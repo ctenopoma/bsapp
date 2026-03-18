@@ -65,6 +65,8 @@ class ThemeConfig(BaseModel):
     theme: str
     persona_ids: List[str] = Field(default_factory=list)  # 空=全ペルソナが有効
     output_format: str = ""  # 空=デフォルトフォーマットを使用
+    turns_per_theme: Optional[int] = None  # None=セッション全体のデフォルト値を使用
+    pre_info: str = ""  # テーマ固有の事前情報 (テンプレート変数使用可)
 
 
 class SessionStartRequest(BaseModel):

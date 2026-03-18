@@ -11,6 +11,7 @@ workflow パッケージ
 - history_compressor.py  : 会話履歴のトークン圧縮
 - summarizer.py          : テーマ要約の生成
 - turn_runner.py         : 1テーマ分のターン実行ループ
+- template_resolver.py   : 事前情報内のテンプレート変数解決
 """
 
 from .persona_selector import select_persona

@@ -36,6 +36,7 @@ from ..session_manager import SessionMemory
 from ..rag_manager import rag_manager
 from ..app_settings import get_settings, get_max_history_tokens_limit
 from .history_compressor import compress_history
+from .template_resolver import resolve_template_variables
 
 
 # ------------------------------------------------------------------
@@ -147,8 +148,21 @@ def build_agent_input(
         else session.current_theme
     )
 
-    # セッション共通の事前情報とペルソナ固有の事前情報を結合
-    pre_info = "\n\n".join(filter(None, [session.pre_info, persona.pre_info]))
+    # セッション共通の事前情報 + テーマ固有の事前情報 + ペルソナ固有の事前情報を結合
+    theme_pre_info = (
+        session.current_theme_config.pre_info
+        if session.current_theme_config
+        else ""
+    )
+    pre_info = "\n\n".join(filter(None, [session.pre_info, theme_pre_info, persona.pre_info]))
+
+    # テンプレート変数 ({{themeN_summary}} 等) を解決
+    pre_info = resolve_template_variables(
+        text=pre_info,
+        summaries=session.summaries,
+        history=session.history,
+        themes=session.themes,
+    )
 
     # ------------------------------------------------------------------
     # 会話履歴の取得と圧縮

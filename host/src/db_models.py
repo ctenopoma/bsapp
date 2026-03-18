@@ -23,6 +23,7 @@ class User(Base):
     personas: Mapped[list["Persona"]] = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="user", cascade="all, delete-orphan")
     sessions: Mapped[list["Session"]] = relationship("Session", back_populates="user", cascade="all, delete-orphan")
+    session_presets: Mapped[list["SessionPreset"]] = relationship("SessionPreset", back_populates="user", cascade="all, delete-orphan")
     patent_sessions: Mapped[list["PatentSession"]] = relationship("PatentSession", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -87,6 +88,25 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped["Session"] = relationship("Session", back_populates="messages")
+
+
+class SessionPreset(Base):
+    """Saved session configuration presets (themes, common_theme, pre_info, task selection, turns)."""
+    __tablename__ = "session_presets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    theme_entries: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON
+    common_theme: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    pre_info: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    active_persona_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
+    active_task_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
+    turns_per_theme: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="session_presets")
 
 
 class PatentSession(Base):
