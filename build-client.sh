@@ -15,6 +15,14 @@
 
 set -euo pipefail
 
+# ----------------------------------------------------------------
+# Tauri signing key (override via environment variable if needed)
+# ----------------------------------------------------------------
+: "${TAURI_SIGNING_PRIVATE_KEY_PATH:=$HOME/.tauri/bsapp.key}"
+: "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:=}"
+export TAURI_SIGNING_PRIVATE_KEY_PATH
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${1:-linux}"
 IMAGE_NAME="bsapp-client-builder"
