@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { FlaskConical, Upload, CheckSquare, Square, Play, Copy, Trash2, ChevronDown, ChevronUp, FileText, BookOpen } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { apiGetSettings, apiPatentAnalyze, apiPatentSummary } from '../lib/api';
 import {
   createPatentSession,
@@ -310,16 +309,15 @@ export default function PatentResearchScreen() {
 
     // デスクトップ通知
     try {
-      let granted = await isPermissionGranted();
-      if (!granted) {
-        const permission = await requestPermission();
-        granted = permission === 'granted';
-      }
-      if (granted) {
-        sendNotification({
-          title: '文献調査が完了しました',
-          body: `${orderedCompanies.length}社の特許分析と総括が完了しました。`,
-        });
+      if ('Notification' in window) {
+        if (Notification.permission === 'default') {
+          await Notification.requestPermission();
+        }
+        if (Notification.permission === 'granted') {
+          new Notification('文献調査が完了しました', {
+            body: `${orderedCompanies.length}社の特許分析と総括が完了しました。`,
+          });
+        }
       }
     } catch { /* 通知は非必須のため無視 */ }
   };
