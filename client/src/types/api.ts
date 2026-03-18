@@ -283,6 +283,108 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
   },
 ];
 
+// マクロフロー（テーマ間の進行制御）定義
+export interface ProjectFlowOption {
+  id: string;
+  name: string;
+  description: string;
+  configFields: ThemeStrategyConfigField[];
+}
+
+export const PROJECT_FLOWS: ProjectFlowOption[] = [
+  {
+    id: 'waterfall',
+    name: 'ウォーターフォール型（デフォルト）',
+    description: 'テーマを定義順に1つずつ実行します。',
+    configFields: [],
+  },
+  {
+    id: 'stage_gate',
+    name: 'ステージゲート型',
+    description: '各テーマ完了後にゲートキーパーが品質チェックし、不合格なら差し戻します。',
+    configFields: [
+      {
+        key: 'gatekeeper_index',
+        label: 'ゲートキーパー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_revisions',
+        label: '最大差し戻し回数',
+        type: 'number',
+        default: 2,
+        min: 0,
+        max: 10,
+      },
+      {
+        key: 'pass_condition',
+        label: '通過条件（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 具体的なアクションアイテムが3つ以上含まれること',
+      },
+    ],
+  },
+  {
+    id: 'agile_sprint',
+    name: 'アジャイル/スプリント型',
+    description: '全テーマをスプリントとして複数回繰り返し、完成判定者が仕上がりを評価します。',
+    configFields: [
+      {
+        key: 'sprint_count',
+        label: 'スプリント回数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'completion_judge_index',
+        label: '完成判定者（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'completion_criteria',
+        label: '完成判定の基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全テーマで実装可能な具体案が揃っていること',
+      },
+    ],
+  },
+  {
+    id: 'conditional',
+    name: '条件分岐/ツリー型',
+    description: 'テーマの結論によってルーターが次のテーマを動的に選択します。',
+    configFields: [
+      {
+        key: 'router_index',
+        label: 'ルーター（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_total_themes',
+        label: '最大実行テーマ総数（0=テーマ数×3）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'routing_rules',
+        label: '分岐条件ルール（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 問題が特定された場合は解決策テーマへ、合意が得られた場合は実装テーマへ',
+      },
+    ],
+  },
+];
+
 // Session API Requests
 export interface SessionStartRequest {
   themes: ThemeConfig[];
@@ -292,6 +394,8 @@ export interface SessionStartRequest {
   turns_per_theme?: number;
   common_theme?: string;
   pre_info?: string;
+  project_flow?: string;
+  flow_config?: Record<string, any>;
 }
 
 export interface SessionStartResponse {

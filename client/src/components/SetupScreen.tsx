@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES } from '../types/api';
+import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
 import {
   getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
   getSessionConfig, saveSessionConfig,
@@ -73,6 +73,8 @@ export default function SetupScreen() {
   const [turnsPerTheme, setTurnsPerTheme] = useState(5);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
+  const [projectFlow, setProjectFlow] = useState('waterfall');
+  const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
 
   // テーマプリセット管理
   const [presets, setPresets] = useState<PresetData[]>([]);
@@ -109,6 +111,8 @@ export default function SetupScreen() {
     }).catch(console.error);
     getSessionConfig('common_theme').then(setCommonTheme).catch(console.error);
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
+    getSessionConfig('project_flow').then(v => { if (v) setProjectFlow(v); }).catch(console.error);
+    getSessionConfig('flow_config').then(v => { if (v) try { setFlowConfig(JSON.parse(v)); } catch {} }).catch(console.error);
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
     getPresets().then(setPresets).catch(console.error);
     getPersonaPresets().then(setPersonaPresets).catch(console.error);
@@ -218,6 +222,12 @@ export default function SetupScreen() {
     setPreInfo(preset.pre_info);
     saveSessionConfig('pre_info', preset.pre_info).catch(console.error);
     setTurnsPerTheme(preset.turns_per_theme);
+    const pf = preset.project_flow ?? 'waterfall';
+    setProjectFlow(pf);
+    saveSessionConfig('project_flow', pf).catch(console.error);
+    const fc = preset.flow_config ?? {};
+    setFlowConfig(fc);
+    saveSessionConfig('flow_config', JSON.stringify(fc)).catch(console.error);
   };
 
   // プリセット保存
@@ -229,6 +239,8 @@ export default function SetupScreen() {
       common_theme: commonTheme,
       pre_info: preInfo,
       turns_per_theme: turnsPerTheme,
+      project_flow: projectFlow,
+      flow_config: flowConfig,
     };
     try {
       if (selectedPresetId && presets.some(p => p.id === selectedPresetId)) {
@@ -295,7 +307,7 @@ export default function SetupScreen() {
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined });
       const sessionId = res.session_id;
       const title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
       await createSession(sessionId, title);
@@ -415,6 +427,70 @@ export default function SetupScreen() {
             onChange={e => setTurnsPerTheme(parseInt(e.target.value) || 1)}
             className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">プロジェクトフロー <span className="text-gray-400 font-normal text-xs">（テーマ間の進行制御）</span></label>
+          <select
+            value={projectFlow}
+            onChange={e => {
+              const v = e.target.value;
+              setProjectFlow(v);
+              setFlowConfig({});
+              saveSessionConfig('project_flow', v).catch(console.error);
+              saveSessionConfig('flow_config', '{}').catch(console.error);
+            }}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            {PROJECT_FLOWS.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">
+            {PROJECT_FLOWS.find(f => f.id === projectFlow)?.description}
+          </p>
+          {/* フロー固有の設定フィールド */}
+          {(() => {
+            const flow = PROJECT_FLOWS.find(f => f.id === projectFlow);
+            if (!flow || flow.configFields.length === 0) return null;
+            return (
+              <div className="mt-2 flex flex-wrap gap-3">
+                {flow.configFields.map(field => (
+                  <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
+                    <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
+                    {field.type === 'number' && (
+                      <input
+                        type="number"
+                        min={field.min}
+                        max={field.max}
+                        value={flowConfig[field.key] ?? field.default}
+                        onChange={ev => {
+                          const val = parseInt(ev.target.value);
+                          const v = isNaN(val) ? field.default : val;
+                          const next = { ...flowConfig, [field.key]: v };
+                          setFlowConfig(next);
+                          saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                        }}
+                        className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    )}
+                    {field.type === 'text' && (
+                      <input
+                        type="text"
+                        value={flowConfig[field.key] ?? field.default}
+                        placeholder={field.placeholder ?? ''}
+                        onChange={ev => {
+                          const next = { ...flowConfig, [field.key]: ev.target.value };
+                          setFlowConfig(next);
+                          saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                        }}
+                        className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
 

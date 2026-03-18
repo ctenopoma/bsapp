@@ -14,6 +14,7 @@ from .workflow import (
     select_persona,
     build_agent_input,
     run_one_theme,
+    run_full_session,
     summarize_theme,
 )
 
@@ -147,7 +148,7 @@ class AgentRunner:
     # 全テーマをシーケンシャルに実行するメインエントリ
     # -------------------------------------------------------------------
     def run_full_session_background(self, session_id: str, job_id: str):
-        """全テーマを順番に処理し、最終レポートを生成する。"""
+        """全テーマを session.project_flow に従って処理し、最終レポートを生成する。"""
         try:
             job_statuses[job_id] = {"status": "processing"}
             session = session_manager.get_session(session_id)
@@ -156,10 +157,11 @@ class AgentRunner:
             if not session.personas:
                 raise ValueError("No personas available")
 
-            while not session.all_themes_done:
-                summary_text = self._run_one_theme(session)
-                session.advance_theme(summary_text)
-                session.summary_memory += f"\n## {session.current_theme}\n{summary_text}"
+            run_full_session(
+                session=session,
+                agent_executor=self.run_agent,
+                summarizer=lambda s: summarize_theme(s, create_llm()),
+            )
 
             theme_summaries = [
                 ThemeSummary(theme=s["theme"], summary=s["summary"])

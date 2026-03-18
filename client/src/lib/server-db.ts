@@ -156,6 +156,8 @@ export interface PresetData {
   common_theme: string;
   pre_info: string;
   turns_per_theme: number;
+  project_flow?: string;
+  flow_config?: Record<string, any>;
 }
 
 export async function getPresets(): Promise<PresetData[]> {

@@ -80,6 +80,8 @@ class SessionStartRequest(BaseModel):
     turns_per_theme: int = 5     # テーマ1つあたりのターン数
     common_theme: str = ""       # 全テーマ共通の上位テーマ
     pre_info: str = ""           # 事前情報 (ファイル内容等)
+    project_flow: str = ""       # マクロフロータイプ (空=waterfall)
+    flow_config: Optional[dict] = None  # フロー固有の設定
 
 
 class SessionStartResponse(BaseModel):
