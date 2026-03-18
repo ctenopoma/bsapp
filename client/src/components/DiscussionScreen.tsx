@@ -3,11 +3,36 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getMessages, addMessage, getSessionConfig } from '../lib/db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
-import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2 } from 'lucide-react';
+import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+interface ThemeGroup {
+  theme: string;
+  messages: MessageHistory[];
+}
+
+function buildThemeGroups(messages: MessageHistory[]): ThemeGroup[] {
+  const groups: ThemeGroup[] = [];
+  for (const m of messages) {
+    const isSystemMsg = m.agent_name === 'Summary' || m.agent_name === '[会話圧縮]';
+    const themeKey = isSystemMsg
+      ? (groups.length > 0 ? groups[groups.length - 1].theme : 'System')
+      : m.theme;
+    if (groups.length === 0 || groups[groups.length - 1].theme !== themeKey) {
+      groups.push({ theme: themeKey, messages: [m] });
+    } else {
+      groups[groups.length - 1].messages.push(m);
+    }
+  }
+  return groups;
+}
+
+function agentMessages(group: ThemeGroup) {
+  return group.messages.filter(m => m.agent_name !== 'Summary' && m.agent_name !== '[会話圧縮]');
+}
 
 export default function DiscussionScreen() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -18,8 +43,12 @@ export default function DiscussionScreen() {
   const [messages, setMessages] = useState<MessageHistory[]>([]);
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [currentAction, setCurrentAction] = useState<string>('');
-  const [copied, setCopied] = useState(false);
+  const [copiedState, setCopiedState] = useState<null | string>(null);
   const [commonTheme, setCommonTheme] = useState('');
+
+  const [openThemes, setOpenThemes] = useState<Set<string>>(new Set());
+  const [openMessages, setOpenMessages] = useState<Set<string>>(new Set());
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     if (sessionId) {
@@ -34,6 +63,42 @@ export default function DiscussionScreen() {
     }
   }, [messages, status]);
 
+  // テーマ・メッセージの開閉状態管理
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const groups = buildThemeGroups(messages);
+    if (groups.length === 0) return;
+    const lastGroup = groups[groups.length - 1];
+    const lastTheme = lastGroup.theme;
+    const lastAgents = agentMessages(lastGroup);
+    const lastMsg = lastAgents[lastAgents.length - 1];
+
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      setOpenThemes(new Set([lastTheme]));
+      setOpenMessages(lastMsg ? new Set([lastMsg.id]) : new Set());
+    } else {
+      setOpenThemes(prev => new Set([...prev, lastTheme]));
+      if (lastMsg) setOpenMessages(prev => new Set([...prev, lastMsg.id]));
+    }
+  }, [messages]);
+
+  const toggleTheme = (theme: string) => {
+    setOpenThemes(prev => {
+      const next = new Set(prev);
+      if (next.has(theme)) next.delete(theme); else next.add(theme);
+      return next;
+    });
+  };
+
+  const toggleMessage = (id: string) => {
+    setOpenMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const handleStart = async () => {
     if (!sessionId) return;
     abortRef.current = false;
@@ -41,7 +106,6 @@ export default function DiscussionScreen() {
 
     try {
       while (!abortRef.current) {
-        // --- ターン実行 ---
         setCurrentAction('エージェントの応答を待っています...');
         const turnJob = await apiStartTurn(sessionId);
 
@@ -62,7 +126,6 @@ export default function DiscussionScreen() {
             theme = turnRes.theme || 'Theme';
             if (turnRes.agent_name && turnRes.message) {
               const current = await getMessages(sessionId);
-              // 履歴圧縮通知を先に挿入
               if (turnRes.history_compressed) {
                 await addMessage(sessionId, theme, '[会話圧縮]', '会話履歴が長くなったため、古い部分を要約圧縮しました。', current.length);
               }
@@ -78,7 +141,6 @@ export default function DiscussionScreen() {
 
         if (abortRef.current) break;
 
-        // --- テーマ終了 → 要約 ---
         if (isThemeEnd) {
           setCurrentAction('テーマの要約を生成しています...');
           const sumJob = await apiStartSummarize(sessionId);
@@ -129,40 +191,47 @@ export default function DiscussionScreen() {
     }
   };
 
-  const handleCopy = async () => {
-    // テーマ順を保ちつつグループ化
-    const themeOrder: string[] = [];
-    const themeMap: Record<string, MessageHistory[]> = {};
-    for (const m of messages) {
-      if (m.agent_name === 'Summary') continue;
-      if (!themeMap[m.theme]) {
-        themeOrder.push(m.theme);
-        themeMap[m.theme] = [];
-      }
-      themeMap[m.theme].push(m);
-    }
-    // Summaryはテーマ名で紐付け
-    const summaryMap: Record<string, string> = {};
-    for (const m of messages) {
-      if (m.agent_name === 'Summary') summaryMap[m.theme] = m.content;
-    }
+  const triggerCopied = (key: string) => {
+    setCopiedState(key);
+    setTimeout(() => setCopiedState(null), 2000);
+  };
 
+  const handleCopyAll = async () => {
+    const groups = buildThemeGroups(messages);
     const sections: string[] = [];
     if (commonTheme) sections.push(`# ${commonTheme}`);
-
-    for (const theme of themeOrder) {
-      sections.push(`## ${theme}`);
-      for (const m of themeMap[theme]) {
+    for (const group of groups) {
+      sections.push(`## ${group.theme}`);
+      for (const m of group.messages) {
+        if (m.agent_name === '[会話圧縮]') continue;
         sections.push(`### ${m.agent_name}\n${m.content}`);
       }
-      if (summaryMap[theme]) {
-        sections.push(`### Summary\n${summaryMap[theme]}`);
-      }
     }
-
     await navigator.clipboard.writeText(sections.join('\n\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    triggerCopied('all');
+  };
+
+  const handleCopyTheme = async (group: ThemeGroup) => {
+    const sections: string[] = [`## ${group.theme}`];
+    for (const m of group.messages) {
+      if (m.agent_name === '[会話圧縮]') continue;
+      sections.push(`### ${m.agent_name}\n${m.content}`);
+    }
+    await navigator.clipboard.writeText(sections.join('\n\n'));
+    triggerCopied(`theme:${group.theme}`);
+  };
+
+  const handleCopyAllSummaries = async () => {
+    const groups = buildThemeGroups(messages);
+    const sections: string[] = [];
+    if (commonTheme) sections.push(`# ${commonTheme}`);
+    for (const group of groups) {
+      const summary = group.messages.find(m => m.agent_name === 'Summary');
+      if (summary) sections.push(`## ${group.theme}\n${summary.content}`);
+    }
+    if (sections.length === 0) return;
+    await navigator.clipboard.writeText(sections.join('\n\n'));
+    triggerCopied('summaries');
   };
 
   const handleEndSession = async () => {
@@ -180,6 +249,9 @@ export default function DiscussionScreen() {
     }
   };
 
+  const hasSummaries = messages.some(m => m.agent_name === 'Summary');
+  const groups = buildThemeGroups(messages);
+
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <div className="bg-white px-6 py-4 flex items-center justify-between border-b border-gray-200 shadow-sm z-10">
@@ -187,18 +259,32 @@ export default function DiscussionScreen() {
           <h1 className="text-xl font-bold flex items-center gap-2"><FileText className="text-blue-600"/> Discussion Session</h1>
           <p className="text-xs text-gray-400 mt-1 font-mono">{sessionId}</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2">
+          {hasSummaries && (
+            <button
+              onClick={handleCopyAllSummaries}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors border text-sm ${
+                copiedState === 'summaries'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+              }`}
+            >
+              {copiedState === 'summaries' ? <Check size={15} /> : <ClipboardList size={15} />}
+              {copiedState === 'summaries' ? 'コピーしました' : '全要約コピー'}
+            </button>
+          )}
+
           {messages.length > 0 && (
             <button
-              onClick={handleCopy}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors border ${
-                copied
+              onClick={handleCopyAll}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors border text-sm ${
+                copiedState === 'all'
                   ? 'bg-green-50 text-green-700 border-green-200'
                   : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-200'
               }`}
             >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? 'コピーしました' : 'コピー'}
+              {copiedState === 'all' ? <Check size={15} /> : <Copy size={15} />}
+              {copiedState === 'all' ? 'コピーしました' : '全コピー'}
             </button>
           )}
 
@@ -237,63 +323,128 @@ export default function DiscussionScreen() {
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 scroll-smooth">
-        <div className="max-w-4xl mx-auto flex flex-col gap-6 pb-12">
+        <div className="max-w-4xl mx-auto flex flex-col gap-4 pb-12">
           {messages.length === 0 && status === 'idle' && (
-             <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
-                <p className="text-lg">No messages yet.</p>
-                <p className="text-sm">Click "Start Discussion" to begin.</p>
-             </div>
+            <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
+              <p className="text-lg">No messages yet.</p>
+              <p className="text-sm">Click "Start Discussion" to begin.</p>
+            </div>
           )}
 
-          {messages.map((m, idx) => {
-            const isSystem = m.agent_name === 'Summary';
-            const isCompressNotice = m.agent_name === '[会話圧縮]';
-
-            if (isCompressNotice) {
-              return (
-                <div key={m.id} className="my-2 mx-auto w-full max-w-3xl flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-xs">
-                  <Minimize2 size={14} className="shrink-0" />
-                  <span>{m.content}</span>
-                </div>
-              );
-            }
-
-            if (isSystem) {
-              return (
-                <div key={m.id} className="my-8 mx-auto w-full max-w-3xl bg-yellow-50 border border-yellow-200 p-6 rounded-2xl shadow-sm">
-                  <div className="flex items-center gap-2 text-yellow-800 font-bold mb-3">
-                    <CheckCircle2 size={20} /> Theme Summary
-                  </div>
-                  <div className="prose prose-sm prose-yellow max-w-none"><ReactMarkdown>{m.content}</ReactMarkdown></div>
-                </div>
-              );
-            }
-
-            const isEven = m.agent_name.length % 2 === 0;
+          {groups.map((group) => {
+            const isThemeOpen = openThemes.has(group.theme);
+            const themeKey = `theme:${group.theme}`;
+            const themeCopied = copiedState === themeKey;
 
             return (
-              <div key={m.id} className={`flex flex-col gap-1 w-full max-w-3xl ${idx % 2 === 0 ? 'self-start' : 'self-end'}`}>
-                <div className={`flex items-center gap-2 ${idx % 2 === 0 ? 'ml-4' : 'mr-4 justify-end flex-row-reverse'}`}>
-                  <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${isEven ? 'bg-indigo-500' : 'bg-pink-500'}`}>
-                    {m.agent_name.substring(0,2).toUpperCase()}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-700">{m.agent_name}</span>
+              <div key={group.theme} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* テーマヘッダー */}
+                <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-200">
+                  <button
+                    onClick={() => toggleTheme(group.theme)}
+                    className="flex items-center gap-2 flex-1 text-left hover:text-blue-700 transition-colors"
+                  >
+                    {isThemeOpen
+                      ? <ChevronDown size={16} className="text-gray-400 shrink-0" />
+                      : <ChevronRight size={16} className="text-gray-400 shrink-0" />}
+                    <span className="font-bold text-gray-800">{group.theme}</span>
+                    {!isThemeOpen && (
+                      <span className="text-xs text-gray-400 ml-2">
+                        {agentMessages(group).length} 件の発言
+                        {group.messages.some(m => m.agent_name === 'Summary') ? ' · 要約あり' : ''}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleCopyTheme(group)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                      themeCopied
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : 'bg-white hover:bg-gray-100 text-gray-500 border-gray-200'
+                    }`}
+                  >
+                    {themeCopied ? <Check size={12} /> : <Copy size={12} />}
+                    {themeCopied ? 'コピー済' : 'コピー'}
+                  </button>
                 </div>
-                <div className={`${idx % 2 === 0 ? 'mr-12 ml-4 rounded-tl-sm' : 'ml-12 mr-4 rounded-tr-sm bg-blue-50 border-blue-100'} bg-white border border-gray-200 p-5 rounded-2xl shadow-sm text-gray-800 text-[15px] leading-relaxed`}>
-                  <div className="prose prose-sm max-w-none"><ReactMarkdown>{m.content}</ReactMarkdown></div>
-                </div>
+
+                {/* テーマ本文 */}
+                {isThemeOpen && (
+                  <div className="flex flex-col gap-0">
+                    {group.messages.map((m) => {
+                      if (m.agent_name === '[会話圧縮]') {
+                        return (
+                          <div key={m.id} className="mx-5 my-3 flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-xs">
+                            <Minimize2 size={14} className="shrink-0" />
+                            <span>{m.content}</span>
+                          </div>
+                        );
+                      }
+
+                      if (m.agent_name === 'Summary') {
+                        return (
+                          <div key={m.id} className="mx-5 my-4 bg-yellow-50 border border-yellow-200 p-5 rounded-xl">
+                            <div className="flex items-center gap-2 text-yellow-800 font-bold mb-3">
+                              <CheckCircle2 size={18} /> Theme Summary
+                            </div>
+                            <div className="prose prose-sm prose-yellow max-w-none">
+                              <ReactMarkdown>{m.content}</ReactMarkdown>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const isEven = m.agent_name.length % 2 === 0;
+                      const isMsgOpen = openMessages.has(m.id);
+                      const preview = m.content.replace(/\n/g, ' ').slice(0, 80);
+                      const hasMore = m.content.length > 80;
+
+                      return (
+                        <div
+                          key={m.id}
+                          className="border-t border-gray-100 first:border-t-0"
+                        >
+                          <button
+                            onClick={() => toggleMessage(m.id)}
+                            className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors text-left"
+                          >
+                            <span className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 ${isEven ? 'bg-indigo-500' : 'bg-pink-500'}`}>
+                              {m.agent_name.substring(0, 2).toUpperCase()}
+                            </span>
+                            <span className="text-sm font-semibold text-gray-700 shrink-0">{m.agent_name}</span>
+                            {!isMsgOpen && (
+                              <span className="text-sm text-gray-400 truncate flex-1">
+                                {preview}{hasMore ? '…' : ''}
+                              </span>
+                            )}
+                            <span className="ml-auto shrink-0">
+                              {isMsgOpen
+                                ? <ChevronDown size={15} className="text-gray-400" />
+                                : <ChevronRight size={15} className="text-gray-400" />}
+                            </span>
+                          </button>
+                          {isMsgOpen && (
+                            <div className="px-5 pb-5 pt-1">
+                              <div className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm text-gray-800 text-[15px] leading-relaxed">
+                                <div className="prose prose-sm max-w-none">
+                                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
 
           {status === 'running' && (
-            <div className="flex flex-col gap-1 w-full max-w-3xl self-start mt-4 animate-pulse">
-               <div className="flex items-center gap-2 ml-4">
-                  <span className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center"></span>
-                  <span className="text-sm font-semibold text-gray-400">Agent typing...</span>
-               </div>
-               <div className="mr-12 ml-4 bg-gray-100 border border-gray-200 p-6 rounded-2xl rounded-tl-sm w-48 h-16">
-               </div>
+            <div className="flex items-center gap-3 px-5 py-4 bg-white rounded-2xl border border-gray-200 shadow-sm animate-pulse">
+              <span className="w-7 h-7 rounded-full bg-gray-300 shrink-0" />
+              <span className="text-sm font-semibold text-gray-400">Agent typing...</span>
             </div>
           )}
         </div>
