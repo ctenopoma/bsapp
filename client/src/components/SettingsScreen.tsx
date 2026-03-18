@@ -196,24 +196,6 @@ export default function SettingsScreen() {
         </Field>
       </section>
 
-      {/* プロンプトテンプレート */}
-      <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">プロンプトテンプレート</h2>
-        <p className="text-xs text-gray-500">
-          エージェント発言用変数: <code className="bg-gray-100 px-1 rounded">{'{role} {task} {name} {query} {pre_info_section} {rag_section} {history} {previous_summaries} {output_format}'}</code>
-          <br />
-          要約用変数: <code className="bg-gray-100 px-1 rounded">{'{theme} {history} {output_format}'}</code>
-        </p>
-        <Field label="エージェント発言プロンプト">
-          <textarea className={TEXTAREA_CLS} rows={12} value={form.agent_prompt_template}
-            onChange={e => set('agent_prompt_template', e.target.value)} />
-        </Field>
-        <Field label="要約プロンプト">
-          <textarea className={TEXTAREA_CLS} rows={8} value={form.summary_prompt_template}
-            onChange={e => set('summary_prompt_template', e.target.value)} />
-        </Field>
-      </section>
-
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 text-sm">{error}</div>
       )}
