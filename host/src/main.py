@@ -104,23 +104,34 @@ def _log_startup_proxy_status() -> None:
 _setup_no_proxy()
 _log_startup_proxy_status()
 
-from src.api import session, rag, settings, patent, update
+from src.api import session, rag, settings, patent, update, auth, admin, user_data
+from src.database import init_db
 
 app = FastAPI(title="BSapp Backend", version="0.1.0")
 
-# CORS設定 (Tauriからのアクセスを許可)
+# CORS設定 (Tauri + Web ブラウザからのアクセスを許可)
+_extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:1420",
         "http://127.0.0.1:1420",
         "http://tauri.localhost",
-        "tauri://localhost"
+        "tauri://localhost",
+        "http://localhost:5173",   # Vite dev server
+        "http://127.0.0.1:5173",
+        *_extra_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def on_startup():
+    await init_db()
+    logger.info("PostgreSQL tables ready")
 
 
 @app.middleware("http")
@@ -144,6 +155,9 @@ app.include_router(rag.router, prefix="/api/rag", tags=["RAG"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(patent.router, prefix="/api/patent", tags=["Patent"])
 app.include_router(update.router, prefix="/api/update", tags=["Update"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(user_data.router, prefix="/api/data", tags=["UserData"])
 
 @app.get("/")
 def read_root():

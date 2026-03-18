@@ -45,7 +45,7 @@ def run_one_theme(session: SessionMemory, agent_executor, summarizer) -> str:
     # ------------------------------------------------------------------
     # ターンループ
     # ------------------------------------------------------------------
-    for _ in range(session.turns_per_theme):
+    for _ in range(session.current_turns_per_theme):
         # 1. 発言者を選ぶ
         persona = select_persona(active, session)
 

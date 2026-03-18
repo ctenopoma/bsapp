@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Persona, AvailableRagType, RagConfig } from '../types/api';
-import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/db';
+import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/server-db';
 import { apiGetRagTypes, apiGetSettings, apiSaveSettings } from '../lib/api';
 import { Plus, Trash2, Edit2, Save, X, FileText } from 'lucide-react';
 

@@ -38,6 +38,14 @@ class SessionMemory:
         return self.current_theme_index >= len(self.themes)
 
     @property
+    def current_turns_per_theme(self) -> int:
+        """現在のテーマの発言回数を返す。テーマ個別設定があればそれを、なければセッションのデフォルトを使用。"""
+        cfg = self.current_theme_config
+        if cfg and cfg.turns_per_theme is not None:
+            return cfg.turns_per_theme
+        return self.turns_per_theme
+
+    @property
     def active_personas(self) -> List[Persona]:
         """現在のテーマで有効なペルソナを返す。persona_ids が空の場合は全員。"""
         cfg = self.current_theme_config

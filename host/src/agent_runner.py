@@ -213,7 +213,7 @@ class AgentRunner:
                 turn_order=session.turn_count_in_theme,
             ))
             session.turn_count_in_theme += 1
-            is_theme_end = session.turn_count_in_theme >= session.turns_per_theme
+            is_theme_end = session.turn_count_in_theme >= session.current_turns_per_theme
 
             job_statuses[job_id] = {
                 "status": "completed",

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, Download, X, Loader2 } from "lucide-react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { initDb, getSessions, SessionData, deleteSession } from "./lib/db";
+import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, ShieldCheck, LogOut } from "lucide-react";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { setAuthToken } from "./lib/api";
+import { getSessions, SessionData } from "./lib/server-db";
 
+import LoginScreen from './components/LoginScreen';
 import PersonasScreen from './components/PersonasScreen';
 import TasksScreen from './components/TasksScreen';
 import RagScreen from './components/RagScreen';
@@ -12,97 +13,55 @@ import SetupScreen from './components/SetupScreen';
 import DiscussionScreen from './components/DiscussionScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PatentResearchScreen from './components/PatentResearchScreen';
+import AdminScreen from './components/AdminScreen';
 
-function App() {
-  const [dbReady, setDbReady] = useState(false);
-  const [dbError, setDbError] = useState<string | null>(null);
+// ─── Inner app (needs auth context) ─────────────────────────────────────────
+function AppShell() {
+  const { ready, user, token, logout } = useAuth();
   const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
-  const [updateDismissed, setUpdateDismissed] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [installProgress, setInstallProgress] = useState<number | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Sync auth token to api.ts fetch helper
   useEffect(() => {
-    initDb().then(() => {
-      console.log("Database initialized");
-      setDbReady(true);
-      loadSessions();
-    }).catch(err => {
-      console.error("Failed to init database", err);
-      setDbError(String(err));
-    });
+    setAuthToken(token);
+  }, [token]);
 
-    // 起動時にアップデート確認 (失敗しても無視)
-    check().then(update => {
-      if (update?.available) setUpdateInfo(update);
-    }).catch(() => {});
-  }, []);
-
+  // Load session history from server whenever location changes
   useEffect(() => {
-    if (dbReady) {
-      loadSessions();
+    if (user?.is_approved) {
+      getSessions().then(setSessions).catch(() => {});
     }
-  }, [location.pathname, dbReady]);
+  }, [location.pathname, user]);
 
-  const loadSessions = async () => {
-    try {
-      const data = await getSessions();
-      setSessions(data);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  if (!ready) {
+    return <div className="flex h-screen items-center justify-center bg-gray-50">Loading...</div>;
+  }
+
+  // Not logged in
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  // Logged in but not yet approved
+  if (!user.is_approved) {
+    return <LoginScreen pending />;
+  }
 
   const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
-    e.preventDefault(); // 親のLinkナビゲーションを防ぐ
+    e.preventDefault();
     e.stopPropagation();
-    
-    if (confirm("本当にこのセッションの履歴を削除しますか？")) {
-      try {
-        await deleteSession(id);
-        await loadSessions();
-        // もし今開いているセッションを消した場合、初期画面に戻す
-        if (location.pathname === `/discussion/${id}`) {
-          navigate('/');
-        }
-      } catch (err) {
-        console.error("Failed to delete session", err);
-        alert("削除に失敗しました。");
-      }
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!updateInfo) return;
-    setInstalling(true);
-    setInstallProgress(0);
+    if (!confirm("本当にこのセッションの履歴を削除しますか？")) return;
     try {
-      let downloaded = 0;
-      let total: number | undefined;
-      await updateInfo.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength ?? undefined;
-        } else if (event.event === 'Progress') {
-          downloaded += event.data.chunkLength;
-          if (total) setInstallProgress(Math.round((downloaded / total) * 100));
-        }
-      });
-      await relaunch();
-    } catch {
-      setInstalling(false);
-      setInstallProgress(null);
+      const { deleteSession } = await import('./lib/server-db');
+      await deleteSession(id);
+      setSessions(prev => prev.filter(s => s.id !== id));
+      if (location.pathname === `/discussion/${id}`) navigate('/');
+    } catch (err) {
+      console.error("Failed to delete session", err);
+      alert("削除に失敗しました。");
     }
   };
-
-  if (dbError) {
-    return <div className="flex h-screen items-center justify-center bg-gray-50 text-red-600 font-bold">Failed to load database: {dbError}</div>;
-  }
-
-  if (!dbReady) {
-    return <div className="flex h-screen items-center justify-center bg-gray-50">Loading application...</div>;
-  }
 
   const navItems = [
     { path: "/", label: "New Session", icon: <PlayCircle size={20} /> },
@@ -111,11 +70,12 @@ function App() {
     { path: "/rag", label: "Data Base", icon: <Database size={20} /> },
     { path: "/patent", label: "Patent Research", icon: <FlaskConical size={20} /> },
     { path: "/settings", label: "Settings", icon: <SlidersHorizontal size={20} /> },
+    ...(user.is_admin ? [{ path: "/admin", label: "Admin", icon: <ShieldCheck size={20} /> }] : []),
   ];
 
   return (
     <div className="flex h-screen w-screen bg-gray-100 text-gray-800 font-sans overflow-hidden">
-      {/* Sidebar Navigation */}
+      {/* Sidebar */}
       <nav className="w-64 bg-white border-r border-gray-200 flex flex-col shadow-sm hidden md:flex">
         <div className="p-6 border-b border-gray-100 flex items-center gap-3">
           <MessageSquare className="text-blue-600" size={28} />
@@ -138,7 +98,7 @@ function App() {
           ))}
         </div>
 
-        {/* History Section */}
+        {/* History */}
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
           <div className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
             <History size={14} /> Recent Sessions
@@ -155,10 +115,7 @@ function App() {
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
-                <Link
-                  to={`/discussion/${s.id}`}
-                  className="flex items-center gap-3 flex-1 overflow-hidden"
-                >
+                <Link to={`/discussion/${s.id}`} className="flex items-center gap-3 flex-1 overflow-hidden">
                   <MessageCircle size={16} className="text-gray-400 shrink-0" />
                   <span className="truncate">{s.title || "Untitled Session"}</span>
                 </Link>
@@ -173,61 +130,50 @@ function App() {
             ))
           )}
         </div>
+
+        {/* User info + logout */}
+        <div className="p-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 px-2 py-2 rounded-lg">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-gray-700 truncate">{user.display_name || user.email}</div>
+              <div className="text-xs text-gray-400 truncate">{user.email}</div>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors shrink-0"
+              title="ログアウト"
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
+        </div>
       </nav>
 
-      {/* Main Content Area */}
+      {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden bg-gray-50">
-        {/* アップデートバナー */}
-        {updateInfo && !updateDismissed && (
-          <div className="flex items-center gap-3 px-4 py-2 bg-blue-600 text-white text-sm shrink-0">
-            {installing ? (
-              <Loader2 size={15} className="shrink-0 animate-spin" />
-            ) : (
-              <Download size={15} className="shrink-0" />
-            )}
-            <span className="flex-1">
-              新しいバージョン <strong>v{updateInfo.version}</strong> が利用できます。
-              {updateInfo.body && (
-                <span className="ml-2 text-blue-200">{updateInfo.body}</span>
-              )}
-              {installing && installProgress !== null && (
-                <span className="ml-2">ダウンロード中... {installProgress}%</span>
-              )}
-              {installing && installProgress === null && (
-                <span className="ml-2">インストール中...</span>
-              )}
-            </span>
-            <button
-              onClick={handleInstallUpdate}
-              disabled={installing}
-              className="px-3 py-1 bg-white text-blue-700 rounded-md font-semibold hover:bg-blue-50 transition-colors shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {installing ? "インストール中..." : "今すぐインストール"}
-            </button>
-            {!installing && (
-              <button
-                onClick={() => setUpdateDismissed(true)}
-                className="p-1 hover:bg-blue-500 rounded transition-colors shrink-0"
-                title="閉じる"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        )}
         <div className="flex-1 overflow-y-auto">
-        <Routes>
-          <Route path="/" element={<SetupScreen />} />
-          <Route path="/discussion/:sessionId" element={<DiscussionScreen />} />
-          <Route path="/personas" element={<PersonasScreen />} />
-          <Route path="/tasks" element={<TasksScreen />} />
-          <Route path="/rag" element={<RagScreen />} />
-          <Route path="/patent" element={<PatentResearchScreen />} />
-          <Route path="/settings" element={<SettingsScreen />} />
-        </Routes>
+          <Routes>
+            <Route path="/" element={<SetupScreen />} />
+            <Route path="/discussion/:sessionId" element={<DiscussionScreen />} />
+            <Route path="/personas" element={<PersonasScreen />} />
+            <Route path="/tasks" element={<TasksScreen />} />
+            <Route path="/rag" element={<RagScreen />} />
+            <Route path="/patent" element={<PatentResearchScreen />} />
+            <Route path="/settings" element={<SettingsScreen />} />
+            {user.is_admin && <Route path="/admin" element={<AdminScreen />} />}
+          </Routes>
         </div>
       </main>
     </div>
+  );
+}
+
+// ─── Root with AuthProvider ──────────────────────────────────────────────────
+function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }
 

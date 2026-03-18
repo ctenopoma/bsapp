@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:16
+    container_name: bsapp-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: bsapp
+      POSTGRES_PASSWORD: bsapp
+      POSTGRES_DB: bsapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: bsapp-qdrant
@@ -10,3 +23,6 @@ services:
     volumes:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
+
+volumes:
+  postgres_data:

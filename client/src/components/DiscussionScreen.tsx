@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getMessages, addMessage, getSessionConfig } from '../lib/db';
+import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
 import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -181,13 +180,12 @@ export default function DiscussionScreen() {
   };
 
   const notifyDone = async () => {
-    let granted = await isPermissionGranted();
-    if (!granted) {
-      const permission = await requestPermission();
-      granted = permission === 'granted';
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
     }
-    if (granted) {
-      sendNotification({ title: 'AI Discuss', body: '全テーマの議論が完了しました。' });
+    if (Notification.permission === 'granted') {
+      new Notification('AI Discuss', { body: '全テーマの議論が完了しました。' });
     }
   };
 
