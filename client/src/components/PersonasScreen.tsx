@@ -73,6 +73,12 @@ export default function PersonasScreen() {
   const [summaryPromptSaving, setSummaryPromptSaving] = useState(false);
   const [summaryPromptSaved, setSummaryPromptSaved] = useState(false);
 
+  // エージェント発言テンプレート
+  const [agentPrompt, setAgentPrompt] = useState('');
+  const [agentPromptLoaded, setAgentPromptLoaded] = useState(false);
+  const [agentPromptSaving, setAgentPromptSaving] = useState(false);
+  const [agentPromptSaved, setAgentPromptSaved] = useState(false);
+
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
     element.style.height = 'auto';
@@ -122,10 +128,35 @@ export default function PersonasScreen() {
     }
   };
 
+  const loadAgentPrompt = async () => {
+    try {
+      const settings = await apiGetSettings();
+      setAgentPrompt(settings.agent_prompt_template);
+      setAgentPromptLoaded(true);
+    } catch {
+      // ホスト未接続の場合は非表示のまま
+    }
+  };
+
+  const handleSaveAgentPrompt = async () => {
+    setAgentPromptSaving(true);
+    try {
+      const settings = await apiGetSettings();
+      await apiSaveSettings({ ...settings, agent_prompt_template: agentPrompt });
+      setAgentPromptSaved(true);
+      setTimeout(() => setAgentPromptSaved(false), 2000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAgentPromptSaving(false);
+    }
+  };
+
   useEffect(() => {
     loadPersonas();
     loadRagTypes();
     loadSummaryPrompt();
+    loadAgentPrompt();
   }, []);
 
   useEffect(() => {
@@ -213,6 +244,50 @@ export default function PersonasScreen() {
               <button onClick={() => setIsCreating(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancel</button>
               <button onClick={handleCreate} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Save</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* エージェント発言テンプレート */}
+      {agentPromptLoaded && (
+        <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText size={18} className="text-blue-600" />
+            <h2 className="text-lg font-bold text-gray-900">エージェント発言テンプレート</h2>
+            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5">固定</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            各エージェントの発言生成に使うプロンプトテンプレートです。空欄の場合はデフォルトが使われます。
+            使用可能な変数: <code className="bg-gray-100 px-1 rounded">{'{role}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{task}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{name}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{query}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{pre_info_section}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{rag_section}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{history}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{previous_summaries}'}</code>、
+            <code className="bg-gray-100 px-1 rounded">{'{output_format}'}</code>
+          </p>
+          <textarea
+            value={agentPrompt}
+            onChange={e => setAgentPrompt(e.target.value)}
+            rows={12}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+            placeholder="空欄の場合はデフォルトのプロンプトが使用されます"
+          />
+          <div className="flex justify-end mt-3">
+            <button
+              onClick={handleSaveAgentPrompt}
+              disabled={agentPromptSaving}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                agentPromptSaved
+                  ? 'bg-green-600 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-400'
+              }`}
+            >
+              <Save size={15} />
+              {agentPromptSaved ? '保存しました' : agentPromptSaving ? '保存中...' : '保存'}
+            </button>
           </div>
         </div>
       )}

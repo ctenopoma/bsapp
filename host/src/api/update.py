@@ -4,27 +4,33 @@ api/update.py
 クライアントアップデート配布 API エンドポイント。
 
 エンドポイント:
-  GET /api/update/info?current=VERSION  - 最新バージョン情報を返す
+  GET /api/update/info?current=VERSION  - 最新バージョン情報を返す (後方互換)
+  GET /api/update/tauri                 - Tauri updater 向けバージョン情報を返す
   GET /api/update/download/{filename}   - インストーラーファイルをダウンロードする
 
 配布ファイルの配置:
   host/client_dist/version.json  : バージョン情報 (開発者が更新する)
-  host/client_dist/*.exe / *.AppImage など : インストーラー本体
+  host/client_dist/*.exe         : NSIS インストーラー本体
 
 version.json の形式:
   {
     "version": "1.2.3",
     "release_notes": "変更点の説明",
-    "windows": { "filename": "client_1.2.3_x64-setup.exe", "url": "/api/update/download/client_1.2.3_x64-setup.exe" },
-    "linux":   { "filename": "client_1.2.3_amd64.AppImage", "url": "/api/update/download/client_1.2.3_amd64.AppImage" }
+    "pub_date": "2026-03-18T00:00:00Z",
+    "windows": {
+      "filename": "BSApp_1.2.3_x64-setup.exe",
+      "url": "/api/update/download/BSApp_1.2.3_x64-setup.exe",
+      "signature": "<npm run tauri signer sign で生成した .sig ファイルの内容>"
+    }
   }
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from ..models import UpdateInfoResponse
 
@@ -89,6 +95,47 @@ def get_update_info(current: str = "0.0.0", platform: str = "windows") -> Update
         download_url=download_url,
         filename=filename,
     )
+
+
+@router.get("/tauri")
+def get_tauri_update(request: Request) -> JSONResponse:
+    """Tauri updater プロトコル準拠のバージョン情報を返す。
+
+    Tauri updater は GET リクエストに `Accept: application/json` を付けて呼び出す。
+    アップデートがない場合は 204 No Content を返す。
+    """
+    version_file = _DIST_DIR / "version.json"
+    if not version_file.exists():
+        return JSONResponse(status_code=204, content=None)
+
+    data = json.loads(version_file.read_text(encoding="utf-8"))
+    latest = str(data.get("version", "0.0.0"))
+
+    win_info = data.get("windows", {})
+    filename = win_info.get("filename", "")
+    signature = win_info.get("signature", "")
+    rel_url = win_info.get("url", "")
+
+    if not filename or not signature or not rel_url:
+        return JSONResponse(status_code=204, content=None)
+
+    # 絶対 URL に変換 (ホスト名はリクエストから取得)
+    base = str(request.base_url).rstrip("/")
+    download_url = f"{base}{rel_url}"
+
+    pub_date = data.get("pub_date", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+    return JSONResponse(content={
+        "version": latest,
+        "notes": data.get("release_notes", ""),
+        "pub_date": pub_date,
+        "platforms": {
+            "windows-x86_64": {
+                "url": download_url,
+                "signature": signature,
+            }
+        },
+    })
 
 
 @router.get("/download/{filename}")

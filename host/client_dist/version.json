@@ -1,12 +1,10 @@
 {
     "version": "0.1.0",
     "release_notes": "初回リリース",
+    "pub_date": "2026-03-18T00:00:00Z",
     "windows": {
         "filename": "BSApp_0.1.0_x64-setup.exe",
-        "url": "/api/update/download/BSApp_0.1.0_x64-setup.exe"
-    },
-    "linux": {
-        "filename": "BSApp_0.1.0_amd64.AppImage",
-        "url": "/api/update/download/BSApp_0.1.0_amd64.AppImage"
+        "url": "/api/update/download/BSApp_0.1.0_x64-setup.exe",
+        "signature": ""
     }
 }
