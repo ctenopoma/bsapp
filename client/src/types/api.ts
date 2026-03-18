@@ -383,6 +383,117 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
       },
     ],
   },
+  {
+    id: 'v_shape',
+    name: 'V字型（実行＆逆順レビュー）',
+    description: '全テーマを順番に実行した後、逆順でレビューして品質を担保します。',
+    configFields: [
+      {
+        key: 'reviewer_index',
+        label: 'レビュアー（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'review_focus',
+        label: 'レビューの観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 前半の要件定義と後半の実装内容の整合性を確認',
+      },
+    ],
+  },
+  {
+    id: 'game_theory',
+    name: 'ゲーム理論/対立型（陣営間ディベート）',
+    description: '提案陣営と批判陣営が対立的に議論し、合意形成者が最終案を導きます。',
+    configFields: [
+      {
+        key: 'split_index',
+        label: '陣営分割（この番号より前が提案陣営）',
+        type: 'number',
+        default: 1,
+        min: 1,
+      },
+      {
+        key: 'rounds',
+        label: 'ラウンド数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'agreement_judge_index',
+        label: '合意形成者（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'agreement_criteria',
+        label: '合意の基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実装コストと効果のバランスが取れた案であること',
+      },
+    ],
+  },
+  {
+    id: 'blackboard',
+    name: 'ブラックボード型（共有黒板）',
+    description: 'コーディネーターが黒板状態を読み、次の担当エージェントを動的に指名します。',
+    configFields: [
+      {
+        key: 'coordinator_index',
+        label: 'コーディネーター（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_total_turns',
+        label: '最大ターン数（0=自動）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'goal_condition',
+        label: '終了条件（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全テーマについて具体的なアクションアイテムが出揃った時点',
+      },
+    ],
+  },
+  {
+    id: 'tournament',
+    name: 'トーナメント/進化型（並列コンペ）',
+    description: '同じプロジェクトを複数回実行し、審査員が最良の成果物を選びます。',
+    configFields: [
+      {
+        key: 'num_lanes',
+        label: '並列レーン数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 5,
+      },
+      {
+        key: 'judge_index',
+        label: '審査員（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'evaluation_criteria',
+        label: '審査基準（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 独自性・実現可能性・具体性の3点で評価',
+      },
+    ],
+  },
 ];
 
 // Session API Requests
