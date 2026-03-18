@@ -542,8 +542,8 @@ export default function SetupScreen() {
                   return (
                     <div className="mt-2 flex flex-wrap gap-3">
                       {strategy.configFields.map(field => (
-                        <div key={field.key} className="flex items-center gap-2">
-                          <label className="text-xs text-gray-500">{field.label}:</label>
+                        <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
+                          <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
                           {field.type === 'number' && (
                             <input
                               type="number"
@@ -551,7 +551,27 @@ export default function SetupScreen() {
                               max={field.max}
                               value={entry.strategyConfig[field.key] ?? field.default}
                               onChange={ev => {
-                                const val = parseInt(ev.target.value) || field.default;
+                                const val = parseInt(ev.target.value);
+                                const v = isNaN(val) ? field.default : val;
+                                setThemeEntries(prev => {
+                                  const next = prev.map(t => t.localId === entry.localId
+                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: v } }
+                                    : t
+                                  );
+                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                  return next;
+                                });
+                              }}
+                              className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
+                          {field.type === 'text' && (
+                            <input
+                              type="text"
+                              value={entry.strategyConfig[field.key] ?? field.default}
+                              placeholder={field.placeholder ?? ''}
+                              onChange={ev => {
+                                const val = ev.target.value;
                                 setThemeEntries(prev => {
                                   const next = prev.map(t => t.localId === entry.localId
                                     ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
@@ -561,7 +581,7 @@ export default function SetupScreen() {
                                   return next;
                                 });
                               }}
-                              className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                              className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                             />
                           )}
                         </div>

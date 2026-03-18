@@ -57,11 +57,12 @@ export interface ThemeStrategyOption {
 export interface ThemeStrategyConfigField {
   key: string;
   label: string;
-  type: 'number' | 'select';
+  type: 'number' | 'select' | 'text';
   default: any;
   min?: number;
   max?: number;
   options?: { value: any; label: string }[];
+  placeholder?: string;
 }
 
 // 利用可能なストラテジー定義
@@ -98,6 +99,99 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: 2,
         min: 1,
         max: 10,
+      },
+    ],
+  },
+  {
+    id: 'hierarchical',
+    name: '階層型（計画・実行・反省）',
+    description: 'マネージャーが計画を立て、ワーカーが実行し、評価・修正を繰り返して品質を高めます。',
+    configFields: [
+      {
+        key: 'manager_index',
+        label: 'マネージャー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_revision_loops',
+        label: '最大修正ループ数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'pass_condition',
+        label: '合格判定の追加指示（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実現可能性と具体性の両方が満たされていること',
+      },
+    ],
+  },
+  {
+    id: 'adversarial',
+    name: '敵対的・レッドチーム（生成・批判）',
+    description: '生成役が提案し、批判役がダメ出し、修正を繰り返して提案の質を高めます。',
+    configFields: [
+      {
+        key: 'generator_index',
+        label: '生成役（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'critic_index',
+        label: '批判役（先頭からの番号）',
+        type: 'number',
+        default: 1,
+        min: 0,
+      },
+      {
+        key: 'max_rounds',
+        label: '最大往復数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'critic_perspective',
+        label: '批判の観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: セキュリティ面から、コスト面から',
+      },
+    ],
+  },
+  {
+    id: 'judge_jury',
+    name: '陪審員・裁判官（Judge & Jury）',
+    description: 'ディベーター間で議論し、最後に裁判官が全履歴を読んで最終判定を下します。',
+    configFields: [
+      {
+        key: 'judge_index',
+        label: '裁判官（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'debate_turns',
+        label: 'ディベートのターン数',
+        type: 'number',
+        default: 6,
+        min: 1,
+        max: 20,
+      },
+      {
+        key: 'evaluation_criteria',
+        label: '評価基準・観点（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 実現可能性・独自性・社会的インパクトの3点で評価',
       },
     ],
   },
