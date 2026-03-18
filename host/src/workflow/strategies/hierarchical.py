@@ -20,12 +20,11 @@ hierarchical.py
   - pass_condition     : 合格判定の追加指示（省略可）
 """
 
-import json
-import re
 import uuid
 
 from ...models import MessageHistory
 from ..input_builder import build_agent_input
+from ..json_utils import parse_json_response
 from ..prompt_builder import EVALUATION_PROMPT_TEMPLATE
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
@@ -35,17 +34,8 @@ def _parse_evaluation(text: str) -> tuple[bool, str]:
 
     パース失敗時は (True, "") を返してループを止める。
     """
-    try:
-        # コードブロック除去
-        cleaned = re.sub(r"```[a-z]*\n?", "", text).strip()
-        # 最初の { ... } を取り出す
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
-            data = json.loads(match.group())
-            return bool(data.get("pass", True)), str(data.get("feedback", ""))
-    except Exception:
-        pass
-    return True, ""
+    data = parse_json_response(text, fallback={})
+    return bool(data.get("pass", True)), str(data.get("feedback", ""))
 
 
 class HierarchicalStrategy(ThemeStrategy):

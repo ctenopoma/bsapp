@@ -195,6 +195,92 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
       },
     ],
   },
+  {
+    id: 'dynamic_routing',
+    name: '動的ルーティング（司会者主導）',
+    description: '司会者が文脈を読んでJSONで次の発言者を動的に指名します。',
+    configFields: [
+      {
+        key: 'router_index',
+        label: '司会者（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_turns',
+        label: '最大ターン数',
+        type: 'number',
+        default: 10,
+        min: 1,
+        max: 30,
+      },
+      {
+        key: 'end_condition',
+        label: '終了条件の説明（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 全員が同意した場合、または3つ以上の具体案が出た場合',
+      },
+    ],
+  },
+  {
+    id: 'map_reduce',
+    name: '分割統治（Map-Reduce）',
+    description: 'プランナーがタスクを分割し、ワーカーが個別処理し、サマライザーが統合します。',
+    configFields: [
+      {
+        key: 'planner_index',
+        label: 'プランナー（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'summarizer_index',
+        label: 'サマライザー（先頭からの番号、-1=最後）',
+        type: 'number',
+        default: -1,
+      },
+      {
+        key: 'max_subtasks',
+        label: '最大サブタスク数',
+        type: 'number',
+        default: 5,
+        min: 1,
+        max: 10,
+      },
+    ],
+  },
+  {
+    id: 'dynamic_generation',
+    name: '動的エージェント生成',
+    description: 'メタエージェントが議題に最適なペルソナをその場で生成し、議論を実行します。',
+    configFields: [
+      {
+        key: 'meta_agent_index',
+        label: 'メタエージェント（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+      {
+        key: 'max_generated',
+        label: '最大生成ペルソナ数',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'generation_guideline',
+        label: '編成指針（省略可）',
+        type: 'text',
+        default: '',
+        placeholder: '例: 技術・法律・ビジネスの専門家を含めること',
+      },
+    ],
+  },
 ];
 
 // Session API Requests
