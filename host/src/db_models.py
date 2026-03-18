@@ -24,6 +24,8 @@ class User(Base):
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="user", cascade="all, delete-orphan")
     sessions: Mapped[list["Session"]] = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     session_presets: Mapped[list["SessionPreset"]] = relationship("SessionPreset", back_populates="user", cascade="all, delete-orphan")
+    persona_presets: Mapped[list["PersonaPreset"]] = relationship("PersonaPreset", back_populates="user", cascade="all, delete-orphan")
+    task_presets: Mapped[list["TaskPreset"]] = relationship("TaskPreset", back_populates="user", cascade="all, delete-orphan")
     patent_sessions: Mapped[list["PatentSession"]] = relationship("PatentSession", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -91,7 +93,7 @@ class Message(Base):
 
 
 class SessionPreset(Base):
-    """Saved session configuration presets (themes, common_theme, pre_info, task selection, turns)."""
+    """Saved session configuration presets (themes, common_theme, pre_info, turns)."""
     __tablename__ = "session_presets"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -100,13 +102,39 @@ class SessionPreset(Base):
     theme_entries: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON
     common_theme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     pre_info: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    active_persona_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
-    active_task_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
     turns_per_theme: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="session_presets")
+
+
+class PersonaPreset(Base):
+    """Named set of personas."""
+    __tablename__ = "persona_presets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    persona_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="persona_presets")
+
+
+class TaskPreset(Base):
+    """Named set of tasks."""
+    __tablename__ = "task_presets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_ids: Mapped[str] = mapped_column(Text, nullable=False, default="")  # comma-separated
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="task_presets")
 
 
 class PatentSession(Base):

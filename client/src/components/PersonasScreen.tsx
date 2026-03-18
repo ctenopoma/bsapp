@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Persona, AvailableRagType, RagConfig } from '../types/api';
-import { getPersonas, addPersona, updatePersona, deletePersona } from '../lib/server-db';
+import { getPersonas, addPersona, updatePersona, deletePersona, getPersonaPresets, createPersonaPreset, updatePersonaPreset, deletePersonaPreset, PersonaPresetData } from '../lib/server-db';
 import { apiGetRagTypes, apiGetSettings, apiSaveSettings } from '../lib/api';
-import { Plus, Trash2, Edit2, Save, X, FileText } from 'lucide-react';
+import { Plus, Trash2, Edit2, Save, X, FileText, FolderOpen } from 'lucide-react';
 
 const SELECT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white";
 const INPUT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
@@ -66,6 +66,13 @@ export default function PersonasScreen() {
 
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState<Partial<Persona>>({ name: '', role: '', pre_info: '' });
+
+  // プリセット管理
+  const [personaPresets, setPersonaPresets] = useState<PersonaPresetData[]>([]);
+  const [presetName, setPresetName] = useState('');
+  const [presetSelectedIds, setPresetSelectedIds] = useState<Set<string>>(new Set());
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [showPresetForm, setShowPresetForm] = useState(false);
 
   // 要約エージェント
   const [summaryPrompt, setSummaryPrompt] = useState('');
@@ -157,6 +164,7 @@ export default function PersonasScreen() {
     loadRagTypes();
     loadSummaryPrompt();
     loadAgentPrompt();
+    getPersonaPresets().then(setPersonaPresets).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -193,6 +201,47 @@ export default function PersonasScreen() {
     }
   };
 
+  const openPresetForm = (preset?: PersonaPresetData) => {
+    if (preset) {
+      setEditingPresetId(preset.id);
+      setPresetName(preset.name);
+      setPresetSelectedIds(new Set(preset.persona_ids.split(',').filter(Boolean)));
+    } else {
+      setEditingPresetId(null);
+      setPresetName('');
+      setPresetSelectedIds(new Set(personas.map(p => p.id)));
+    }
+    setShowPresetForm(true);
+  };
+
+  const handleSavePreset = async () => {
+    if (!presetName.trim()) return;
+    const data: PersonaPresetData = {
+      id: editingPresetId || crypto.randomUUID(),
+      name: presetName.trim(),
+      persona_ids: [...presetSelectedIds].join(','),
+    };
+    try {
+      if (editingPresetId) {
+        await updatePersonaPreset(data);
+        setPersonaPresets(prev => prev.map(p => p.id === data.id ? data : p));
+      } else {
+        await createPersonaPreset(data);
+        setPersonaPresets(prev => [...prev, data]);
+      }
+      setShowPresetForm(false);
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  const handleDeletePreset = async (id: string) => {
+    const preset = personaPresets.find(p => p.id === id);
+    if (!preset || !confirm(`プリセット「${preset.name}」を削除しますか？`)) return;
+    await deletePersonaPreset(id);
+    setPersonaPresets(prev => prev.filter(p => p.id !== id));
+  };
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-8">
@@ -204,6 +253,75 @@ export default function PersonasScreen() {
           <Plus size={18} />
           New Persona
         </button>
+      </div>
+
+      {/* ペルソナプリセット */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <FolderOpen size={16} className="text-blue-600" />
+          <h2 className="text-lg font-bold text-gray-900">ペルソナプリセット</h2>
+          <span className="text-xs text-gray-400">（ペルソナのセットを保存してNew Sessionで選択）</span>
+        </div>
+        {personaPresets.length === 0 && !showPresetForm && (
+          <p className="text-sm text-gray-500 mb-3">プリセットはまだありません。</p>
+        )}
+        {personaPresets.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {personaPresets.map(pp => {
+              const ids = pp.persona_ids.split(',').filter(Boolean);
+              const names = ids.map(id => personas.find(p => p.id === id)?.name).filter(Boolean);
+              return (
+                <div key={pp.id} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+                  <span className="text-sm font-medium text-blue-800">{pp.name}</span>
+                  <span className="text-xs text-blue-500 ml-1">({names.length}人)</span>
+                  <button onClick={() => openPresetForm(pp)} className="ml-1 p-0.5 text-blue-400 hover:text-blue-600"><Edit2 size={13} /></button>
+                  <button onClick={() => handleDeletePreset(pp.id)} className="p-0.5 text-blue-400 hover:text-red-500"><Trash2 size={13} /></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {showPresetForm ? (
+          <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/50">
+            <input
+              type="text"
+              value={presetName}
+              onChange={e => setPresetName(e.target.value)}
+              placeholder="プリセット名..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-3"
+              autoFocus
+            />
+            <p className="text-xs text-gray-500 mb-2">含めるペルソナを選択:</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {personas.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setPresetSelectedIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                    return next;
+                  })}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    presetSelectedIds.has(p.id)
+                      ? 'bg-blue-100 border-blue-400 text-blue-700'
+                      : 'bg-gray-100 border-gray-200 text-gray-400'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowPresetForm(false)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">キャンセル</button>
+              <button onClick={handleSavePreset} disabled={!presetName.trim() || presetSelectedIds.size === 0}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg">保存</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => openPresetForm()} className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
+            <Plus size={15} /> 新規プリセット
+          </button>
+        )}
       </div>
 
       {isCreating && (

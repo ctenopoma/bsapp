@@ -41,7 +41,66 @@ export interface ThemeConfig {
   output_format?: string; // 空=デフォルトフォーマットを使用
   turns_per_theme?: number; // テーマごとの発言回数（未指定=セッションのデフォルト値）
   pre_info?: string; // テーマ固有の事前情報（テンプレート変数使用可）
+  theme_strategy?: string; // テーマ内ストラテジー（空=sequential）
+  strategy_config?: Record<string, any>; // ストラテジー固有の設定
 }
+
+// テーマ内ストラテジーの定義
+export interface ThemeStrategyOption {
+  id: string;
+  name: string;
+  description: string;
+  configFields: ThemeStrategyConfigField[];
+}
+
+export interface ThemeStrategyConfigField {
+  key: string;
+  label: string;
+  type: 'number' | 'select';
+  default: any;
+  min?: number;
+  max?: number;
+  options?: { value: any; label: string }[];
+}
+
+// 利用可能なストラテジー定義
+export const THEME_STRATEGIES: ThemeStrategyOption[] = [
+  {
+    id: 'sequential',
+    name: 'シーケンシャル（バトンリレー）',
+    description: '各エージェントが順番に発言し、結果を次に渡します。',
+    configFields: [],
+  },
+  {
+    id: 'parallel',
+    name: '並列独立（ブレスト）',
+    description: '各エージェントが独立して意見を出し、ファシリテーターが集約します。',
+    configFields: [
+      {
+        key: 'facilitator_index',
+        label: 'ファシリテーター（先頭からの番号）',
+        type: 'number',
+        default: 0,
+        min: 0,
+      },
+    ],
+  },
+  {
+    id: 'round_robin_debate',
+    name: 'ラウンドロビン（順番ディベート）',
+    description: '全員が順番に発言するループを複数回回し、議論を深掘りします。',
+    configFields: [
+      {
+        key: 'max_loops',
+        label: '最大ループ数',
+        type: 'number',
+        default: 2,
+        min: 1,
+        max: 10,
+      },
+    ],
+  },
+];
 
 // Session API Requests
 export interface SessionStartRequest {

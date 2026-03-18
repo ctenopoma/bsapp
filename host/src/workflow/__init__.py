@@ -10,8 +10,9 @@ workflow パッケージ
 - input_builder.py       : AgentInput (エージェントへの入力) の組み立て
 - history_compressor.py  : 会話履歴のトークン圧縮
 - summarizer.py          : テーマ要約の生成
-- turn_runner.py         : 1テーマ分のターン実行ループ
+- turn_runner.py         : 1テーマ分のターン実行ループ (ストラテジーディスパッチャー)
 - template_resolver.py   : 事前情報内のテンプレート変数解決
+- strategies/            : テーマ内ストラテジー (シーケンシャル, 並列, ラウンドロビン等)
 """
 
 from .persona_selector import select_persona
@@ -19,6 +20,7 @@ from .input_builder import build_agent_input
 from .prompt_builder import DEFAULT_OUTPUT_FORMAT, AGENT_PROMPT_TEMPLATE, SUMMARY_PROMPT_TEMPLATE
 from .summarizer import summarize_theme
 from .turn_runner import run_one_theme
+from .strategies import STRATEGY_MAP, get_strategy
 
 __all__ = [
     "select_persona",
@@ -28,4 +30,6 @@ __all__ = [
     "SUMMARY_PROMPT_TEMPLATE",
     "summarize_theme",
     "run_one_theme",
+    "STRATEGY_MAP",
+    "get_strategy",
 ]

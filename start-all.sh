@@ -65,6 +65,7 @@ cleanup() {
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
     wait $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
     echo "[INFO] Stopped (Docker containers still running: docker compose down)"
+    exit 0
 }
 trap cleanup INT TERM
 
@@ -78,5 +79,5 @@ fi
 
 echo "[INFO] Started"
 
-# Wait for child processes
-wait
+# Wait for child processes (|| true to prevent set -e from exiting on signal)
+wait || true

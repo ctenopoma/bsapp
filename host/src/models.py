@@ -67,6 +67,8 @@ class ThemeConfig(BaseModel):
     output_format: str = ""  # 空=デフォルトフォーマットを使用
     turns_per_theme: Optional[int] = None  # None=セッション全体のデフォルト値を使用
     pre_info: str = ""  # テーマ固有の事前情報 (テンプレート変数使用可)
+    theme_strategy: str = ""  # テーマ内ストラテジー (空=sequential)
+    strategy_config: Optional[dict] = None  # ストラテジー固有の設定
 
 
 class SessionStartRequest(BaseModel):

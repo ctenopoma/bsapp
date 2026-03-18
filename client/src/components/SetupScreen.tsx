@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Persona, TaskModel, ThemeConfig } from '../types/api';
-import { getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries, getSessionConfig, saveSessionConfig, getPresets, createPreset, updatePreset, deletePreset, PresetData } from '../lib/server-db';
+import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES } from '../types/api';
+import {
+  getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
+  getSessionConfig, saveSessionConfig,
+  getPresets, createPreset, updatePreset, deletePreset, PresetData,
+  getPersonaPresets, PersonaPresetData,
+  getTaskPresets, TaskPresetData,
+} from '../lib/server-db';
 import { apiStartSession, apiGetSettings } from '../lib/api';
-import { Settings, Play, Plus, Trash2, Save, FolderOpen } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo } from 'lucide-react';
 
 interface ThemeEntry {
   localId: string;
@@ -12,14 +18,16 @@ interface ThemeEntry {
   outputFormat: string;
   turnsPerTheme: number | null; // null = セッションのデフォルト値を使用
   preInfo: string; // テーマ固有の事前情報
+  themeStrategy: string; // テーマ内ストラテジー（空 = sequential）
+  strategyConfig: Record<string, any>; // ストラテジー固有の設定
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '' };
+  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {} };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any> }): ThemeEntry {
   return {
     localId: e.id,
     text: e.text,
@@ -27,6 +35,8 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     outputFormat: e.output_format ?? '',
     turnsPerTheme: e.turns_per_theme ?? null,
     preInfo: e.pre_info ?? '',
+    themeStrategy: e.theme_strategy ?? '',
+    strategyConfig: e.strategy_config ?? {},
   };
 }
 
@@ -38,6 +48,8 @@ function uiToDb(e: ThemeEntry, i: number) {
     output_format: e.outputFormat,
     turns_per_theme: e.turnsPerTheme,
     pre_info: e.preInfo,
+    theme_strategy: e.themeStrategy,
+    strategy_config: e.strategyConfig,
     sort_order: i,
   };
 }
@@ -56,11 +68,17 @@ export default function SetupScreen() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
 
-  // プリセット管理
+  // テーマプリセット管理
   const [presets, setPresets] = useState<PresetData[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('');
   const [presetName, setPresetName] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  // ペルソナプリセット・タスクプリセット
+  const [personaPresets, setPersonaPresets] = useState<PersonaPresetData[]>([]);
+  const [taskPresets, setTaskPresets] = useState<TaskPresetData[]>([]);
+  const [selectedPersonaPresetId, setSelectedPersonaPresetId] = useState<string>('');
+  const [selectedTaskPresetId, setSelectedTaskPresetId] = useState<string>('');
 
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
@@ -87,6 +105,8 @@ export default function SetupScreen() {
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
     getPresets().then(setPresets).catch(console.error);
+    getPersonaPresets().then(setPersonaPresets).catch(console.error);
+    getTaskPresets().then(setTaskPresets).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -148,22 +168,28 @@ export default function SetupScreen() {
   const isActive = (entry: ThemeEntry, personaId: string) =>
     entry.personaIds.size === 0 || entry.personaIds.has(personaId);
 
-  const togglePersonaActive = (personaId: string) => {
-    setActivePersonaIds(prev => {
-      const next = new Set(prev);
-      if (next.has(personaId)) next.delete(personaId);
-      else next.add(personaId);
-      return next;
-    });
+  const loadPersonaPreset = (presetId: string) => {
+    setSelectedPersonaPresetId(presetId);
+    if (!presetId) {
+      setActivePersonaIds(new Set(personas.map(p => p.id)));
+      return;
+    }
+    const preset = personaPresets.find(p => p.id === presetId);
+    if (preset) {
+      setActivePersonaIds(new Set(preset.persona_ids.split(',').filter(Boolean)));
+    }
   };
 
-  const toggleTask = (taskId: string) => {
-    setActiveTaskIds(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
+  const loadTaskPreset = (presetId: string) => {
+    setSelectedTaskPresetId(presetId);
+    if (!presetId) {
+      setActiveTaskIds(new Set(allTasks.map(t => t.id)));
+      return;
+    }
+    const preset = taskPresets.find(p => p.id === presetId);
+    if (preset) {
+      setActiveTaskIds(new Set(preset.task_ids.split(',').filter(Boolean)));
+    }
   };
 
   // プリセット読み込み
@@ -186,16 +212,6 @@ export default function SetupScreen() {
     setPreInfo(preset.pre_info);
     saveSessionConfig('pre_info', preset.pre_info).catch(console.error);
     setTurnsPerTheme(preset.turns_per_theme);
-    if (preset.active_persona_ids) {
-      setActivePersonaIds(new Set(preset.active_persona_ids.split(',').filter(Boolean)));
-    } else {
-      setActivePersonaIds(new Set(personas.map(p => p.id)));
-    }
-    if (preset.active_task_ids) {
-      setActiveTaskIds(new Set(preset.active_task_ids.split(',').filter(Boolean)));
-    } else {
-      setActiveTaskIds(new Set(allTasks.map(t => t.id)));
-    }
   };
 
   // プリセット保存
@@ -206,8 +222,6 @@ export default function SetupScreen() {
       theme_entries: JSON.stringify(themeEntries.map(uiToDb)),
       common_theme: commonTheme,
       pre_info: preInfo,
-      active_persona_ids: [...activePersonaIds].join(','),
-      active_task_ids: [...activeTaskIds].join(','),
       turns_per_theme: turnsPerTheme,
     };
     try {
@@ -267,6 +281,8 @@ export default function SetupScreen() {
       output_format: e.outputFormat,
       turns_per_theme: e.turnsPerTheme ?? undefined,
       pre_info: e.preInfo || undefined,
+      theme_strategy: e.themeStrategy || undefined,
+      strategy_config: Object.keys(e.strategyConfig).length > 0 ? e.strategyConfig : undefined,
     }));
 
     try {
@@ -484,6 +500,72 @@ export default function SetupScreen() {
               <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
             </div>
 
+            {/* ストラテジー選択 */}
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                Strategy
+              </span>
+              <div className="flex-1">
+                <select
+                  value={entry.themeStrategy || 'sequential'}
+                  onChange={e => {
+                    const strategyId = e.target.value;
+                    setThemeEntries(prev => {
+                      const next = prev.map(t => t.localId === entry.localId
+                        ? { ...t, themeStrategy: strategyId, strategyConfig: {} }
+                        : t
+                      );
+                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                      return next;
+                    });
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  {THEME_STRATEGIES.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  {THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'))?.description}
+                </p>
+                {/* ストラテジー固有の設定フィールド */}
+                {(() => {
+                  const strategy = THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'));
+                  if (!strategy || strategy.configFields.length === 0) return null;
+                  return (
+                    <div className="mt-2 flex flex-wrap gap-3">
+                      {strategy.configFields.map(field => (
+                        <div key={field.key} className="flex items-center gap-2">
+                          <label className="text-xs text-gray-500">{field.label}:</label>
+                          {field.type === 'number' && (
+                            <input
+                              type="number"
+                              min={field.min}
+                              max={field.max}
+                              value={entry.strategyConfig[field.key] ?? field.default}
+                              onChange={ev => {
+                                const val = parseInt(ev.target.value) || field.default;
+                                setThemeEntries(prev => {
+                                  const next = prev.map(t => t.localId === entry.localId
+                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
+                                    : t
+                                  );
+                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                  return next;
+                                });
+                              }}
+                              className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="w-[22px] shrink-0" />
+            </div>
+
             {/* ペルソナ選択チップ（アクティブなペルソナのみ表示） */}
             <div className="flex items-center gap-2 flex-wrap pl-[4.75rem]">
               <span className="text-xs text-gray-400">参加:</span>
@@ -519,53 +601,81 @@ export default function SetupScreen() {
         <Plus size={15} /> テーマを追加
       </button>
 
-      {/* ペルソナ選択 */}
-      {personas.length > 0 && (
-        <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-3">使用するペルソナの選択</h2>
-          <p className="text-sm text-gray-500 mb-4">このセッションで使用するペルソナを選択してください。</p>
-          <div className="flex flex-wrap gap-2">
-            {personas.map(p => (
-              <button
-                key={p.id}
-                onClick={() => togglePersonaActive(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  activePersonaIds.has(p.id)
-                    ? 'bg-blue-100 border-blue-400 text-blue-700'
-                    : 'bg-gray-100 border-gray-200 text-gray-400'
-                }`}
-                title={p.role}
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
+      {/* ペルソナプリセット選択 */}
+      <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Users size={16} className="text-blue-600" />
+          <h2 className="text-lg font-bold text-gray-800">ペルソナプリセット</h2>
         </div>
-      )}
+        {personaPresets.length === 0 ? (
+          <p className="text-sm text-gray-500">Personas画面でプリセットを作成してください。</p>
+        ) : (
+          <>
+            <select
+              value={selectedPersonaPresetId}
+              onChange={e => loadPersonaPreset(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white mb-3"
+            >
+              <option value="">-- 全ペルソナを使用 --</option>
+              {personaPresets.map(pp => (
+                <option key={pp.id} value={pp.id}>{pp.name}</option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1.5">
+              {personas.map(p => (
+                <span
+                  key={p.id}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border ${
+                    activePersonaIds.has(p.id)
+                      ? 'bg-blue-100 border-blue-400 text-blue-700'
+                      : 'bg-gray-100 border-gray-200 text-gray-300'
+                  }`}
+                >
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
-      {/* タスク選択 */}
-      {allTasks.length > 0 && (
-        <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-3">使用するタスクの選択</h2>
-          <p className="text-sm text-gray-500 mb-4">ここで選んだタスクが議事中にランダムで割り当てられます。</p>
-          <div className="flex flex-wrap gap-2">
-            {allTasks.map(t => (
-              <button
-                key={t.id}
-                onClick={() => toggleTask(t.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  activeTaskIds.has(t.id)
-                    ? 'bg-purple-100 border-purple-400 text-purple-800'
-                    : 'bg-gray-100 border-gray-200 text-gray-400'
-                }`}
-                title={t.description}
-              >
-                {t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description}
-              </button>
-            ))}
-          </div>
+      {/* タスクプリセット選択 */}
+      <div className="mt-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <ListTodo size={16} className="text-purple-600" />
+          <h2 className="text-lg font-bold text-gray-800">タスクプリセット</h2>
         </div>
-      )}
+        {taskPresets.length === 0 ? (
+          <p className="text-sm text-gray-500">Tasks画面でプリセットを作成してください。</p>
+        ) : (
+          <>
+            <select
+              value={selectedTaskPresetId}
+              onChange={e => loadTaskPreset(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 bg-white mb-3"
+            >
+              <option value="">-- 全タスクを使用 --</option>
+              {taskPresets.map(tp => (
+                <option key={tp.id} value={tp.id}>{tp.name}</option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1.5">
+              {allTasks.map(t => (
+                <span
+                  key={t.id}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border ${
+                    activeTaskIds.has(t.id)
+                      ? 'bg-purple-100 border-purple-400 text-purple-700'
+                      : 'bg-gray-100 border-gray-200 text-gray-300'
+                  }`}
+                >
+                  {t.description.length > 30 ? t.description.substring(0, 30) + '...' : t.description}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       {error && (
         <div className="mt-6 bg-red-50 text-red-700 p-4 rounded-lg border border-red-200">

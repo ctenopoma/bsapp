@@ -27,7 +27,14 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db() -> None:
-    """Create all tables if they don't exist yet."""
+    """Create all tables if they don't exist yet, and apply migrations."""
     from src import db_models  # noqa: F401 – ensure models are registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate: drop obsolete columns from session_presets
+        for col in ("active_persona_ids", "active_task_ids"):
+            await conn.execute(
+                __import__("sqlalchemy").text(
+                    f"ALTER TABLE session_presets DROP COLUMN IF EXISTS {col}"
+                )
+            )

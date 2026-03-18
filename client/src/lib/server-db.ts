@@ -149,11 +149,9 @@ export async function saveThemeEntries(entries: ThemeEntry[]): Promise<void> {
 export interface PresetData {
   id: string;
   name: string;
-  theme_entries: string;      // JSON string
+  theme_entries: string;   // JSON string
   common_theme: string;
   pre_info: string;
-  active_persona_ids: string; // comma-separated
-  active_task_ids: string;    // comma-separated
   turns_per_theme: number;
 }
 
@@ -171,6 +169,58 @@ export async function updatePreset(preset: PresetData): Promise<void> {
 
 export async function deletePreset(id: string): Promise<void> {
   await _req(`/api/data/presets/${id}`, { method: 'DELETE' });
+}
+
+// ─────────────────────────────────────────────
+// Persona Presets
+// ─────────────────────────────────────────────
+
+export interface PersonaPresetData {
+  id: string;
+  name: string;
+  persona_ids: string; // comma-separated
+}
+
+export async function getPersonaPresets(): Promise<PersonaPresetData[]> {
+  return _req<PersonaPresetData[]>('/api/data/persona-presets');
+}
+
+export async function createPersonaPreset(preset: PersonaPresetData): Promise<void> {
+  await _req('/api/data/persona-presets', { method: 'POST', body: JSON.stringify(preset) });
+}
+
+export async function updatePersonaPreset(preset: PersonaPresetData): Promise<void> {
+  await _req(`/api/data/persona-presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
+}
+
+export async function deletePersonaPreset(id: string): Promise<void> {
+  await _req(`/api/data/persona-presets/${id}`, { method: 'DELETE' });
+}
+
+// ─────────────────────────────────────────────
+// Task Presets
+// ─────────────────────────────────────────────
+
+export interface TaskPresetData {
+  id: string;
+  name: string;
+  task_ids: string; // comma-separated
+}
+
+export async function getTaskPresets(): Promise<TaskPresetData[]> {
+  return _req<TaskPresetData[]>('/api/data/task-presets');
+}
+
+export async function createTaskPreset(preset: TaskPresetData): Promise<void> {
+  await _req('/api/data/task-presets', { method: 'POST', body: JSON.stringify(preset) });
+}
+
+export async function updateTaskPreset(preset: TaskPresetData): Promise<void> {
+  await _req(`/api/data/task-presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
+}
+
+export async function deleteTaskPreset(id: string): Promise<void> {
+  await _req(`/api/data/task-presets/${id}`, { method: 'DELETE' });
 }
 
 // ─────────────────────────────────────────────

@@ -12,7 +12,7 @@ from sqlalchemy import select, delete
 
 from src.auth import require_approved
 from src.database import get_db
-from src.db_models import User, Persona, Task, Session, Message, SessionConfig, SessionPreset
+from src.db_models import User, Persona, Task, Session, Message, SessionConfig, SessionPreset, PersonaPreset, TaskPreset
 from src.db_models import PatentSession, PatentReport, PatentSummary
 
 router = APIRouter()
@@ -214,7 +214,7 @@ async def save_config(
 
 
 # ─────────────────────────────────────────────
-# Session Presets
+# Session Presets (theme config only)
 # ─────────────────────────────────────────────
 
 class PresetIn(BaseModel):
@@ -223,8 +223,6 @@ class PresetIn(BaseModel):
     theme_entries: str = "[]"      # JSON string
     common_theme: str = ""
     pre_info: str = ""
-    active_persona_ids: str = ""   # comma-separated
-    active_task_ids: str = ""      # comma-separated
     turns_per_theme: int = 5
 
 
@@ -243,8 +241,7 @@ async def list_presets(
     rows = result.scalars().all()
     return [PresetOut(
         id=r.id, name=r.name, theme_entries=r.theme_entries, common_theme=r.common_theme,
-        pre_info=r.pre_info, active_persona_ids=r.active_persona_ids, active_task_ids=r.active_task_ids,
-        turns_per_theme=r.turns_per_theme,
+        pre_info=r.pre_info, turns_per_theme=r.turns_per_theme,
     ) for r in rows]
 
 
@@ -262,16 +259,14 @@ async def create_preset(
     p = SessionPreset(
         id=body.id, user_id=user.id, name=body.name,
         theme_entries=body.theme_entries, common_theme=body.common_theme,
-        pre_info=body.pre_info, active_persona_ids=body.active_persona_ids,
-        active_task_ids=body.active_task_ids,
+        pre_info=body.pre_info,
         turns_per_theme=body.turns_per_theme, sort_order=next_order,
     )
     db.add(p)
     await db.commit()
     return PresetOut(
         id=p.id, name=p.name, theme_entries=p.theme_entries, common_theme=p.common_theme,
-        pre_info=p.pre_info, active_persona_ids=p.active_persona_ids,
-        active_task_ids=p.active_task_ids, turns_per_theme=p.turns_per_theme,
+        pre_info=p.pre_info, turns_per_theme=p.turns_per_theme,
     )
 
 
@@ -289,14 +284,11 @@ async def update_preset(
     p.theme_entries = body.theme_entries
     p.common_theme = body.common_theme
     p.pre_info = body.pre_info
-    p.active_persona_ids = body.active_persona_ids
-    p.active_task_ids = body.active_task_ids
     p.turns_per_theme = body.turns_per_theme
     await db.commit()
     return PresetOut(
         id=p.id, name=p.name, theme_entries=p.theme_entries, common_theme=p.common_theme,
-        pre_info=p.pre_info, active_persona_ids=p.active_persona_ids,
-        active_task_ids=p.active_task_ids, turns_per_theme=p.turns_per_theme,
+        pre_info=p.pre_info, turns_per_theme=p.turns_per_theme,
     )
 
 
@@ -310,6 +302,146 @@ async def delete_preset(
     if not p or p.user_id != user.id:
         raise HTTPException(status_code=404, detail="Preset not found")
     await db.delete(p)
+    await db.commit()
+
+
+# ─────────────────────────────────────────────
+# Persona Presets
+# ─────────────────────────────────────────────
+
+class PersonaPresetIn(BaseModel):
+    id: str
+    name: str
+    persona_ids: str = ""  # comma-separated
+
+
+class PersonaPresetOut(PersonaPresetIn):
+    pass
+
+
+@router.get("/persona-presets", response_model=list[PersonaPresetOut])
+async def list_persona_presets(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(PersonaPreset).where(PersonaPreset.user_id == user.id).order_by(PersonaPreset.sort_order, PersonaPreset.created_at)
+    )
+    return [PersonaPresetOut(id=r.id, name=r.name, persona_ids=r.persona_ids) for r in result.scalars().all()]
+
+
+@router.post("/persona-presets", response_model=PersonaPresetOut, status_code=201)
+async def create_persona_preset(
+    body: PersonaPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(PersonaPreset).where(PersonaPreset.user_id == user.id).order_by(PersonaPreset.sort_order.desc())
+    )
+    last = result.scalars().first()
+    pp = PersonaPreset(id=body.id, user_id=user.id, name=body.name, persona_ids=body.persona_ids, sort_order=(last.sort_order + 1) if last else 0)
+    db.add(pp)
+    await db.commit()
+    return PersonaPresetOut(id=pp.id, name=pp.name, persona_ids=pp.persona_ids)
+
+
+@router.put("/persona-presets/{preset_id}", response_model=PersonaPresetOut)
+async def update_persona_preset(
+    preset_id: str,
+    body: PersonaPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pp = await db.get(PersonaPreset, preset_id)
+    if not pp or pp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Persona preset not found")
+    pp.name = body.name
+    pp.persona_ids = body.persona_ids
+    await db.commit()
+    return PersonaPresetOut(id=pp.id, name=pp.name, persona_ids=pp.persona_ids)
+
+
+@router.delete("/persona-presets/{preset_id}", status_code=204)
+async def delete_persona_preset(
+    preset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pp = await db.get(PersonaPreset, preset_id)
+    if not pp or pp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Persona preset not found")
+    await db.delete(pp)
+    await db.commit()
+
+
+# ─────────────────────────────────────────────
+# Task Presets
+# ─────────────────────────────────────────────
+
+class TaskPresetIn(BaseModel):
+    id: str
+    name: str
+    task_ids: str = ""  # comma-separated
+
+
+class TaskPresetOut(TaskPresetIn):
+    pass
+
+
+@router.get("/task-presets", response_model=list[TaskPresetOut])
+async def list_task_presets(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(TaskPreset).where(TaskPreset.user_id == user.id).order_by(TaskPreset.sort_order, TaskPreset.created_at)
+    )
+    return [TaskPresetOut(id=r.id, name=r.name, task_ids=r.task_ids) for r in result.scalars().all()]
+
+
+@router.post("/task-presets", response_model=TaskPresetOut, status_code=201)
+async def create_task_preset(
+    body: TaskPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(TaskPreset).where(TaskPreset.user_id == user.id).order_by(TaskPreset.sort_order.desc())
+    )
+    last = result.scalars().first()
+    tp = TaskPreset(id=body.id, user_id=user.id, name=body.name, task_ids=body.task_ids, sort_order=(last.sort_order + 1) if last else 0)
+    db.add(tp)
+    await db.commit()
+    return TaskPresetOut(id=tp.id, name=tp.name, task_ids=tp.task_ids)
+
+
+@router.put("/task-presets/{preset_id}", response_model=TaskPresetOut)
+async def update_task_preset(
+    preset_id: str,
+    body: TaskPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    tp = await db.get(TaskPreset, preset_id)
+    if not tp or tp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Task preset not found")
+    tp.name = body.name
+    tp.task_ids = body.task_ids
+    await db.commit()
+    return TaskPresetOut(id=tp.id, name=tp.name, task_ids=tp.task_ids)
+
+
+@router.delete("/task-presets/{preset_id}", status_code=204)
+async def delete_task_preset(
+    preset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    tp = await db.get(TaskPreset, preset_id)
+    if not tp or tp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Task preset not found")
+    await db.delete(tp)
     await db.commit()
 
 
