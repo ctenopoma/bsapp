@@ -168,7 +168,9 @@ export default function SetupScreen() {
         if (pids.has(personaId)) pids.delete(personaId);
         else pids.add(personaId);
         if (pids.size === personas.length) pids.clear();
-        return { ...e, personaIds: pids };
+        // personaOrder から無効なペルソナIDを除去
+        const newOrder = e.personaOrder.filter(id => pids.size === 0 || pids.has(id));
+        return { ...e, personaIds: pids, personaOrder: newOrder };
       });
       saveThemeEntries(next.map(uiToDb)).catch(console.error);
       return next;

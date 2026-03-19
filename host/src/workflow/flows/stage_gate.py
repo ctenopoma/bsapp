@@ -96,7 +96,6 @@ class StageGateFlow(ProjectFlow):
                         content=f"改善が必要です。{feedback}",
                         turn_order=session.turn_count_in_theme,
                     ))
-                    session.turn_count_in_theme += 1
                     # ターンカウントをリセットして再実行
                     session.turn_count_in_theme = 0
                     session.last_persona_id = None
