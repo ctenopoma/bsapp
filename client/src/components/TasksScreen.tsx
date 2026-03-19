@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { generateUUID } from '../lib/uuid';
 import { TaskModel } from '../types/api';
 import { getTasks, addTask, updateTask, deleteTask, getTaskPresets, createTaskPreset, updateTaskPreset, deleteTaskPreset, TaskPresetData } from '../lib/server-db';
 import { Plus, Trash2, Edit2, Save, X, FolderOpen } from 'lucide-react';
@@ -35,7 +36,7 @@ export default function TasksScreen() {
   const handleCreate = async () => {
     if (!createForm.description) return;
     const newTask: TaskModel = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       description: createForm.description
     };
     await addTask(newTask);
@@ -74,7 +75,7 @@ export default function TasksScreen() {
   const handleSavePreset = async () => {
     if (!presetName.trim()) return;
     const data: TaskPresetData = {
-      id: editingPresetId || crypto.randomUUID(),
+      id: editingPresetId || generateUUID(),
       name: presetName.trim(),
       task_ids: [...presetSelectedIds].join(','),
     };

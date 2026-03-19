@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { generateUUID } from '../lib/uuid';
 import { FlaskConical, Upload, CheckSquare, Square, Play, Copy, Trash2, ChevronDown, ChevronUp, FileText, BookOpen } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { apiGetSettings, apiPatentAnalyze, apiPatentSummary } from '../lib/api';
@@ -237,7 +238,7 @@ export default function PatentResearchScreen() {
     setReports(initialReports);
 
     // セッション作成
-    const sessionId = crypto.randomUUID();
+    const sessionId = generateUUID();
     const title = `${orderedCompanies.map(c => c.company).slice(0, 3).join('・')}${orderedCompanies.length > 3 ? '...' : ''} (${new Date().toLocaleDateString('ja-JP')})`;
     await createPatentSession(sessionId, title);
 

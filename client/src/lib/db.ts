@@ -1,5 +1,6 @@
 import Database from '@tauri-apps/plugin-sql';
 import { Persona, TaskModel, MessageHistory } from '../types/api';
+import { generateUUID } from './uuid';
 
 let _db: Database | null = null;
 
@@ -254,7 +255,7 @@ export async function addMessage(
   const db = await getDb();
   await db.execute(
     'INSERT INTO messages (id, session_id, theme, agent_name, content, turn_order) VALUES ($1, $2, $3, $4, $5, $6)',
-    [crypto.randomUUID(), sessionId, theme, agentName, content, turnOrder]
+    [generateUUID(), sessionId, theme, agentName, content, turnOrder]
   );
 }
 
@@ -310,7 +311,7 @@ export async function addPatentReport(
   const db = await getDb();
   await db.execute(
     'INSERT INTO patent_reports (id, session_id, company, report, sort_order) VALUES ($1, $2, $3, $4, $5)',
-    [crypto.randomUUID(), sessionId, company, report, sortOrder]
+    [generateUUID(), sessionId, company, report, sortOrder]
   );
 }
 
@@ -326,7 +327,7 @@ export async function savePatentSummary(sessionId: string, summary: string): Pro
   const db = await getDb();
   await db.execute(
     'INSERT INTO patent_summaries (id, session_id, summary) VALUES ($1, $2, $3) ON CONFLICT(session_id) DO UPDATE SET summary=$3',
-    [crypto.randomUUID(), sessionId, summary]
+    [generateUUID(), sessionId, summary]
   );
 }
 

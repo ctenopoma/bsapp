@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { generateUUID } from '../lib/uuid';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
 import {
@@ -25,7 +26,7 @@ interface ThemeEntry {
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: crypto.randomUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false };
+  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false };
 }
 
 // DB形式 <-> UI形式変換
@@ -235,7 +236,7 @@ export default function SetupScreen() {
   // プリセット保存
   const saveCurrentAsPreset = async (name: string) => {
     const data: PresetData = {
-      id: selectedPresetId || crypto.randomUUID(),
+      id: selectedPresetId || generateUUID(),
       name,
       theme_entries: JSON.stringify(themeEntries.map(uiToDb)),
       common_theme: commonTheme,
@@ -249,7 +250,7 @@ export default function SetupScreen() {
         await updatePreset(data);
         setPresets(prev => prev.map(p => p.id === data.id ? data : p));
       } else {
-        data.id = crypto.randomUUID();
+        data.id = generateUUID();
         await createPreset(data);
         setPresets(prev => [...prev, data]);
         setSelectedPresetId(data.id);
