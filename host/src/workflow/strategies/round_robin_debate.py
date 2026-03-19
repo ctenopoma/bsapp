@@ -19,7 +19,6 @@ round_robin_debate.py
 import uuid
 
 from ...models import MessageHistory
-from ..persona_selector import select_persona
 from ..input_builder import build_agent_input
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 

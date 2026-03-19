@@ -124,11 +124,11 @@ class DynamicGenerationStrategy(ThemeStrategy):
             temp_persona_ids.append(temp_id)
 
         if not generated_personas:
-            # 生成失敗 → 既存のアクティブペルソナで継続
+            # 生成失敗 → 既存のアクティブペルソナで継続（追加不要）
             generated_personas = active
-
-        # セッションに一時ペルソナを追加
-        session.personas.extend(generated_personas)
+        else:
+            # セッションに一時ペルソナを追加（生成成功時のみ）
+            session.personas.extend(generated_personas)
 
         try:
             # ------------------------------------------------------------------

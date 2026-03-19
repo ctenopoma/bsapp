@@ -19,10 +19,8 @@ conditional.py
   - max_total_themes: 最大実行テーマ総数（デフォルト: テーマ数 × 3）
 """
 
-import uuid
 import logging
 
-from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import FLOW_ROUTER_PROMPT_TEMPLATE

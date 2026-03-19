@@ -109,7 +109,7 @@ class AgentRunner:
             f"  # 手動確認 (ホストから実行):\n"
             f"  curl -v --noproxy '*' -X POST {endpoint} \\\n"
             f"    -H 'Content-Type: application/json' \\\n"
-            f"    -H 'Authorization: Bearer {c.llm_api_key}' \\\n"
+            f"    -H 'Authorization: Bearer $LLM_API_KEY' \\\n"
             f"    -d '{{\"model\":\"{c.llm_model}\","
             f"\"messages\":[{{\"role\":\"user\",\"content\":\"ping\"}}]}}'"
         )
@@ -128,7 +128,7 @@ class AgentRunner:
             logger.error(
                 f"  # モデル一覧で疎通確認:\n"
                 f"  curl -v --noproxy '*' {base_url}/models \\\n"
-                f"    -H 'Authorization: Bearer {c.llm_api_key}'"
+                f"    -H 'Authorization: Bearer $LLM_API_KEY'"
             )
             raise
 

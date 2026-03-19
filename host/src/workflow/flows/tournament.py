@@ -126,12 +126,12 @@ class TournamentFlow(ProjectFlow):
         logger.info(f"[TournamentFlow] 最良レーン: {best_lane['lane']}")
 
         # ------------------------------------------------------------------
-        # 審査結果を記録し、最良レーンの要約を最終成果物として採用
+        # 最良レーンの要約を最終成果物として採用し、審査結果を末尾に記録
         # ------------------------------------------------------------------
+        for theme, summary in best_lane["summaries"]:
+            session.advance_theme(summary)
+
         session.summaries.append({
             "theme": "[トーナメント審査]",
             "summary": judge_response,
         })
-
-        for theme, summary in best_lane["summaries"]:
-            session.advance_theme(summary)

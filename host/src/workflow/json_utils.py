@@ -41,11 +41,34 @@ def parse_json_response(text: str, fallback: Any = None) -> Any:
         cleaned = re.sub(r"```[a-z]*\n?", "", text)
         cleaned = re.sub(r"```", "", cleaned).strip()
 
-        # 最初の { ... } または [ ... ] を取り出す（ネスト対応のため最外側を探す）
-        for pattern in (r"\{.*\}", r"\[.*\]"):
-            match = re.search(pattern, cleaned, re.DOTALL)
-            if match:
-                return json.loads(match.group())
+        # 最初の { ... } または [ ... ] をブラケットカウントで取り出す
+        for open_ch, close_ch in (("{", "}"), ("[", "]")):
+            start = cleaned.find(open_ch)
+            if start == -1:
+                continue
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(cleaned)):
+                ch = cleaned[i]
+                if escape:
+                    escape = False
+                    continue
+                if ch == "\\":
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == open_ch:
+                    depth += 1
+                elif ch == close_ch:
+                    depth -= 1
+                    if depth == 0:
+                        candidate = cleaned[start:i + 1]
+                        return json.loads(candidate)
     except Exception:
         pass
 

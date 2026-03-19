@@ -17,7 +17,7 @@ parallel.py
 import uuid
 from typing import List
 
-from ...models import MessageHistory, AgentInput, Persona
+from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
@@ -57,7 +57,7 @@ class ParallelStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        facilitator_index = config.get("facilitator_index", 0)
+        facilitator_index = int(config.get("facilitator_index", 0))
         facilitator_index = min(facilitator_index, len(active) - 1)
 
         # ------------------------------------------------------------------

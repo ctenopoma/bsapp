@@ -20,12 +20,10 @@ agile_sprint.py
   - completion_criteria     : 完成判定の基準（省略可）
 """
 
-from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import SPRINT_COMPLETION_PROMPT_TEMPLATE
 from .base import ProjectFlow, FlowContext
-import uuid
 
 
 class AgileSprintFlow(ProjectFlow):
