@@ -6,10 +6,15 @@ from sqlalchemy.orm import DeclarativeBase
 _PG_PORT = os.environ.get("POSTGRES_PORT", "5432")
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    f"postgresql+asyncpg://bsapp:bsapp@localhost:{_PG_PORT}/bsapp?ssl=disable"
+    f"postgresql+asyncpg://bsapp:bsapp@localhost:{_PG_PORT}/bsapp"
 )
 
-engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    connect_args={"ssl": None},  # SSL無効 (asyncpg方式)
+)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

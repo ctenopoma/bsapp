@@ -134,6 +134,13 @@ async def on_startup():
     logger.info("PostgreSQL tables ready")
 
 
+@app.on_event("shutdown")
+async def on_shutdown():
+    from src.database import engine
+    await engine.dispose()
+    logger.info("DB connection pool disposed")
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """全HTTPリクエスト/レスポンスをログ出力する。"""
