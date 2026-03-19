@@ -73,6 +73,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!DEV_AUTH_BYPASS) return;
     callLogin(undefined).then(u => {
+      if (!u) {
+        console.error(
+          '[DEV_AUTH_BYPASS] /api/auth/login failed. ' +
+          'Make sure the backend is running with DEV_AUTH_BYPASS=true ' +
+          '(host/.env または host/.env.example を確認してください).'
+        );
+      }
       setUser(u);
       setReady(true);
     });

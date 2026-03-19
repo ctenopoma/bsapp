@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { generateUUID } from '../lib/uuid';
 import { Persona, AvailableRagType, RagConfig } from '../types/api';
 import { getPersonas, addPersona, updatePersona, deletePersona, getPersonaPresets, createPersonaPreset, updatePersonaPreset, deletePersonaPreset, PersonaPresetData } from '../lib/server-db';
 import { apiGetRagTypes, apiGetSettings, apiSaveSettings } from '../lib/api';
@@ -175,7 +176,7 @@ export default function PersonasScreen() {
   const handleCreate = async () => {
     if (!createForm.name || !createForm.role) return;
     const newPersona: Persona = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: createForm.name,
       role: createForm.role,
       pre_info: createForm.pre_info ?? '',
@@ -217,7 +218,7 @@ export default function PersonasScreen() {
   const handleSavePreset = async () => {
     if (!presetName.trim()) return;
     const data: PersonaPresetData = {
-      id: editingPresetId || crypto.randomUUID(),
+      id: editingPresetId || generateUUID(),
       name: presetName.trim(),
       persona_ids: [...presetSelectedIds].join(','),
     };

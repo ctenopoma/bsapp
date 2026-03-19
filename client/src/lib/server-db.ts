@@ -6,6 +6,7 @@
  */
 import { Persona, TaskModel, MessageHistory } from '../types/api';
 import { request as _req } from './api-internal';
+import { generateUUID } from './uuid';
 
 // Re-export types used by consumers
 export interface ThemeEntry {
@@ -261,7 +262,7 @@ export async function addMessage(
   await _req(`/api/data/sessions/${sessionId}/messages`, {
     method: 'POST',
     body: JSON.stringify({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       theme,
       agent_name: agentName,
       content,
@@ -297,7 +298,7 @@ export async function addPatentReport(
 ): Promise<void> {
   await _req(`/api/data/patent-sessions/${sessionId}/reports`, {
     method: 'POST',
-    body: JSON.stringify({ id: crypto.randomUUID(), company, report, sort_order: sortOrder }),
+    body: JSON.stringify({ id: generateUUID(), company, report, sort_order: sortOrder }),
   });
 }
 

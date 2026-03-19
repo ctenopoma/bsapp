@@ -7,8 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
-# host/.env を明示的に読み込む
-ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+# host/.env を明示的に読み込む。存在しない場合は .env.example をフォールバックとして使用
+_HOST_DIR = Path(__file__).resolve().parents[1]
+ENV_PATH = _HOST_DIR / ".env"
+if not ENV_PATH.exists():
+    ENV_PATH = _HOST_DIR / ".env.example"
 load_dotenv(dotenv_path=ENV_PATH)
 
 # ロギング設定
@@ -111,21 +114,33 @@ app = FastAPI(title="BSapp Backend", version="0.1.0")
 
 # CORS設定 (Tauri + Web ブラウザからのアクセスを許可)
 _extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:1420",
-        "http://127.0.0.1:1420",
-        "http://tauri.localhost",
-        "tauri://localhost",
-        "http://localhost:5173",   # Vite dev server
-        "http://127.0.0.1:5173",
-        *_extra_origins,
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_dev_bypass = os.environ.get("DEV_AUTH_BYPASS", "false").lower() == "true"
+if _dev_bypass:
+    # 開発バイパスモード: IPアドレス経由のアクセスも許可するため全オリジンを許可
+    # (allow_credentials=True と allow_origins=["*"] は併用不可のため False に設定)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:1420",
+            "http://127.0.0.1:1420",
+            "http://tauri.localhost",
+            "tauri://localhost",
+            "http://localhost:5173",   # Vite dev server
+            "http://127.0.0.1:5173",
+            *_extra_origins,
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.on_event("startup")
