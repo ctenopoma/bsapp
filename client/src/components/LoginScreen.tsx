@@ -55,6 +55,13 @@ export default function LoginScreen({ pending = false }: Props) {
                 ? '開発モード: 認証はバイパスされています'
                 : 'Microsoftアカウントでサインインしてください'}
             </p>
+            {DEV_AUTH_BYPASS && (
+              <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                バックエンドへの接続に失敗しました。<br />
+                サーバーが起動しているか、<code>host/.env</code> に{' '}
+                <code>DEV_AUTH_BYPASS=true</code> が設定されているか確認してください。
+              </div>
+            )}
             {error && (
               <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>
             )}

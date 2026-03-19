@@ -7,8 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
-# host/.env を明示的に読み込む
-ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+# host/.env を明示的に読み込む。存在しない場合は .env.example をフォールバックとして使用
+_HOST_DIR = Path(__file__).resolve().parents[1]
+ENV_PATH = _HOST_DIR / ".env"
+if not ENV_PATH.exists():
+    ENV_PATH = _HOST_DIR / ".env.example"
 load_dotenv(dotenv_path=ENV_PATH)
 
 # ロギング設定
