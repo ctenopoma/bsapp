@@ -114,21 +114,33 @@ app = FastAPI(title="BSapp Backend", version="0.1.0")
 
 # CORS設定 (Tauri + Web ブラウザからのアクセスを許可)
 _extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:1420",
-        "http://127.0.0.1:1420",
-        "http://tauri.localhost",
-        "tauri://localhost",
-        "http://localhost:5173",   # Vite dev server
-        "http://127.0.0.1:5173",
-        *_extra_origins,
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_dev_bypass = os.environ.get("DEV_AUTH_BYPASS", "false").lower() == "true"
+if _dev_bypass:
+    # 開発バイパスモード: IPアドレス経由のアクセスも許可するため全オリジンを許可
+    # (allow_credentials=True と allow_origins=["*"] は併用不可のため False に設定)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:1420",
+            "http://127.0.0.1:1420",
+            "http://tauri.localhost",
+            "tauri://localhost",
+            "http://localhost:5173",   # Vite dev server
+            "http://127.0.0.1:5173",
+            *_extra_origins,
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.on_event("startup")
