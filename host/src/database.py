@@ -3,9 +3,10 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
+_PG_PORT = os.environ.get("POSTGRES_PORT", "5432")
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://bsapp:bsapp@localhost:5432/bsapp?ssl=disable"
+    f"postgresql+asyncpg://bsapp:bsapp@localhost:{_PG_PORT}/bsapp?ssl=disable"
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)

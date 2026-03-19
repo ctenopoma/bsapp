@@ -47,11 +47,12 @@ echo.
 
 REM -- 2. Port check --------------------------------------
 echo [2/3] Checking ports...
-netstat -an | findstr "LISTENING" | findstr ":5432 " >nul 2>&1
+if not defined POSTGRES_PORT set "POSTGRES_PORT=5432"
+netstat -an | findstr "LISTENING" | findstr ":!POSTGRES_PORT! " >nul 2>&1
 if not errorlevel 1 (
-    echo [OK] PostgreSQL 5432 OK
+    echo [OK] PostgreSQL !POSTGRES_PORT! OK
 ) else (
-    echo [WARNING] Port 5432 not open. Check PostgreSQL.
+    echo [WARNING] Port !POSTGRES_PORT! not open. Check PostgreSQL.
 )
 netstat -an | findstr "LISTENING" | findstr ":6333 " >nul 2>&1
 if not errorlevel 1 (
