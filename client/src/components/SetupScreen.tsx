@@ -3,13 +3,13 @@ import { generateUUID } from '../lib/uuid';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
 import {
-  getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
+  getPersonas, getTasks, createSession, updateSessionTitle, getThemeEntries, saveThemeEntries,
   getSessionConfig, saveSessionConfig,
   getPresets, createPreset, updatePreset, deletePreset, PresetData,
   getPersonaPresets, PersonaPresetData,
   getTaskPresets, TaskPresetData,
 } from '../lib/server-db';
-import { apiStartSession, apiGetSettings } from '../lib/api';
+import { apiStartSession, apiGetSettings, apiGenerateTitle } from '../lib/api';
 import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface ThemeEntry {
@@ -23,14 +23,17 @@ interface ThemeEntry {
   strategyConfig: Record<string, any>; // ストラテジー固有の設定
   personaOrder: string[]; // ペルソナIDの発言順序
   useCustomOrder: boolean; // カスタム順を使用するか
+  flowRoleMap: Record<string, string[]>; // フロー役割マッピング（役割名 → ペルソナIDリスト）
+  taskAssignment: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
+  personaTaskMap: Record<string, string>; // fixed時のペルソナID→タスクID
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false };
+  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false, flowRoleMap: {} as Record<string, string[]>, taskAssignment: '', personaTaskMap: {} };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[] }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[]; flow_role_map?: Record<string, string>; task_assignment?: string; persona_task_map?: Record<string, string> }): ThemeEntry {
   const personaOrder = e.persona_order ?? [];
   return {
     localId: e.id,
@@ -43,6 +46,16 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     strategyConfig: e.strategy_config ?? {},
     personaOrder,
     useCustomOrder: personaOrder.length > 0,
+    flowRoleMap: (() => {
+      const raw = e.flow_role_map ?? {};
+      const result: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        result[k] = Array.isArray(v) ? v : [v];
+      }
+      return result;
+    })(),
+    taskAssignment: e.task_assignment ?? '',
+    personaTaskMap: e.persona_task_map ?? {},
   };
 }
 
@@ -57,6 +70,15 @@ function uiToDb(e: ThemeEntry, i: number) {
     theme_strategy: e.themeStrategy,
     strategy_config: e.strategyConfig,
     persona_order: e.useCustomOrder ? e.personaOrder : [],
+    flow_role_map: (() => {
+      const m: Record<string, string[]> = {};
+      for (const [role, pids] of Object.entries(e.flowRoleMap)) {
+        if (pids.length > 0) m[role] = pids;
+      }
+      return Object.keys(m).length > 0 ? m : undefined;
+    })(),
+    task_assignment: e.taskAssignment || undefined,
+    persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
     sort_order: i,
   };
 }
@@ -76,6 +98,8 @@ export default function SetupScreen() {
   const [error, setError] = useState('');
   const [projectFlow, setProjectFlow] = useState('waterfall');
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
+  const [themeTab, setThemeTab] = useState<Record<string, string>>({}); // localId → active tab
+  const [flowRoleTab, setFlowRoleTab] = useState(''); // active flow role tab
 
   // テーマプリセット管理
   const [presets, setPresets] = useState<PresetData[]>([]);
@@ -305,6 +329,15 @@ export default function SetupScreen() {
       theme_strategy: e.themeStrategy || undefined,
       strategy_config: Object.keys(e.strategyConfig).length > 0 ? e.strategyConfig : undefined,
       persona_order: e.useCustomOrder && e.personaOrder.length > 0 ? e.personaOrder : undefined,
+      flow_role_map: (() => {
+        const m: Record<string, string[]> = {};
+        for (const [role, pids] of Object.entries(e.flowRoleMap)) {
+          if (pids.length > 0) m[role] = pids;
+        }
+        return Object.keys(m).length > 0 ? m : undefined;
+      })(),
+      task_assignment: e.taskAssignment || undefined,
+      persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
     }));
 
     try {
@@ -312,7 +345,14 @@ export default function SetupScreen() {
       setError('');
       const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined });
       const sessionId = res.session_id;
-      const title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
+      // LLMにタイトルを生成させる（失敗時はフォールバック）
+      let title: string;
+      try {
+        const titleRes = await apiGenerateTitle(themes.map(t => t.theme), commonTheme);
+        title = titleRes.title;
+      } catch {
+        title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
+      }
       await createSession(sessionId, title);
       navigate(`/discussion/${sessionId}`);
     } catch (e: any) {
@@ -458,7 +498,7 @@ export default function SetupScreen() {
             return (
               <div className="mt-2 flex flex-wrap gap-3">
                 {flow.configFields.map(field => (
-                  <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
+                  <div key={field.key} className={`flex gap-2 ${field.type === 'slot_prompts' ? 'w-full items-start' : 'items-center'} ${field.type === 'text' ? 'w-full' : ''}`}>
                     <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
                     {field.type === 'number' && (
                       <input
@@ -489,312 +529,669 @@ export default function SetupScreen() {
                         className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       />
                     )}
+                    {field.type === 'slot_prompts' && (() => {
+                      const slotPrompts: Record<string, { stance_prompt?: string }> = flowConfig[field.key] ?? {};
+                      const availableRoles = field.roles ?? [];
+                      if (availableRoles.length === 0) return null;
+                      return (
+                        <div className="w-full mt-1 space-y-2">
+                          {availableRoles.map(role => (
+                            <div key={role} className="flex items-start gap-2">
+                              <span className="text-xs text-gray-600 w-28 shrink-0 pt-1 font-medium">{role}</span>
+                              <textarea
+                                value={slotPrompts[role]?.stance_prompt ?? ''}
+                                onChange={ev => {
+                                  const text = ev.target.value;
+                                  const newSlotPrompts = { ...slotPrompts };
+                                  if (text.trim()) {
+                                    newSlotPrompts[role] = { stance_prompt: text };
+                                  } else {
+                                    delete newSlotPrompts[role];
+                                  }
+                                  const next = { ...flowConfig, [field.key]: newSlotPrompts };
+                                  setFlowConfig(next);
+                                  saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                                }}
+                                placeholder={`${role} の立場・ミッションを記述（省略可）`}
+                                rows={2}
+                                className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
+              </div>
+            );
+          })()}
+          {/* 単一ペルソナ役割の割当（フロー設定にインライン） */}
+          {(() => {
+            const flow = PROJECT_FLOWS.find(f => f.id === projectFlow);
+            const singleRoles = (flow?.flowRoles ?? []).filter(r => !r.multi);
+            if (singleRoles.length === 0) return null;
+            return (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-medium text-gray-500">役割担当ペルソナ（全テーマ共通）</p>
+                {singleRoles.map(role => {
+                  // flowConfig に保存: flow_role_defaults = { role_name: persona_id }
+                  const defaults: Record<string, string> = flowConfig._role_defaults ?? {};
+                  return (
+                    <div key={role.name} className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500 w-36 shrink-0">{role.name}:</label>
+                      <select
+                        value={defaults[role.name] ?? ''}
+                        onChange={ev => {
+                          const pid = ev.target.value;
+                          const newDefaults = { ...defaults };
+                          if (pid) { newDefaults[role.name] = pid; } else { delete newDefaults[role.name]; }
+                          const next = { ...flowConfig, _role_defaults: Object.keys(newDefaults).length > 0 ? newDefaults : undefined };
+                          if (!next._role_defaults) delete next._role_defaults;
+                          setFlowConfig(next);
+                          saveSessionConfig('flow_config', JSON.stringify(next)).catch(console.error);
+                        }}
+                        className="border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 bg-white"
+                      >
+                        <option value="">（自動 / インデックス指定）</option>
+                        {personas.filter(p => activePersonaIds.has(p.id)).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             );
           })()}
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {themeEntries.map((entry, idx) => (
-          <div key={entry.localId} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            {/* テーマ入力行 */}
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
-                Theme {idx + 1}
-              </span>
-              <textarea
-                ref={element => {
-                  themeTextRefs.current[entry.localId] = element;
-                }}
-                value={entry.text}
-                onChange={e => {
-                  updateText(entry.localId, e.target.value);
-                  resizeTextarea(e.target);
-                }}
-                placeholder="テーマを入力..."
-                rows={3}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none overflow-hidden"
-              />
-              <button
-                onClick={() => removeTheme(entry.localId)}
-                disabled={themeEntries.length === 1}
-                className="mt-1.5 p-1.5 text-gray-300 hover:text-red-500 disabled:opacity-20 transition-colors"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-
-            {/* 出力フォーマット */}
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
-                Format
-              </span>
-              <textarea
-                value={entry.outputFormat}
-                onChange={e => updateOutputFormat(entry.localId, e.target.value)}
-                placeholder="出力フォーマットを指定（空=デフォルト）"
-                rows={2}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
-              />
-              <div className="w-[22px] shrink-0" />
-            </div>
-
-            {/* テーマ固有の事前情報 */}
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
-                Pre-Info
-              </span>
-              <div className="flex-1">
-                <textarea
-                  value={entry.preInfo}
-                  onChange={e => updateThemePreInfo(entry.localId, e.target.value)}
-                  placeholder="テーマ固有の事前情報（テンプレート変数使用可）"
-                  rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  変数: <code className="bg-gray-100 px-1 rounded">{`{{theme1_summary}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_messages}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_agent:名前}}`}</code> （番号は1始まり）
-                </p>
+      {/* テーマ設定セクション（フロー役割タブ統合） */}
+      {(() => {
+        const flow = PROJECT_FLOWS.find(f => f.id === projectFlow);
+        const multiRoles = (flow?.flowRoles ?? []).filter(r => r.multi);
+        const hasMultiRoles = multiRoles.length > 0;
+        const activeRole = hasMultiRoles
+          ? (flowRoleTab && multiRoles.some(r => r.name === flowRoleTab) ? flowRoleTab : multiRoles[0].name)
+          : '';
+        return (
+          <>
+            {/* グループ役割タブ（陣営など複数ペルソナの役割のみ） */}
+            {hasMultiRoles && (
+              <div className="flex border-b border-gray-200 mt-4 mb-0">
+                {multiRoles.map(role => (
+                  <button
+                    key={role.name}
+                    onClick={() => setFlowRoleTab(role.name)}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      activeRole === role.name
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-400 hover:text-gray-600'
+                    }`}
+                  >
+                    {role.name}
+                  </button>
+                ))}
               </div>
-              <div className="w-[22px] shrink-0" />
-            </div>
+            )}
 
-            {/* ターン数 */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">
-                Turns
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={entry.turnsPerTheme ?? ''}
-                onChange={e => {
-                  const v = e.target.value === '' ? null : parseInt(e.target.value) || 1;
-                  setThemeEntries(prev => {
-                    const next = prev.map(t => t.localId === entry.localId ? { ...t, turnsPerTheme: v } : t);
-                    saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                    return next;
-                  });
-                }}
-                placeholder={String(turnsPerTheme)}
-                className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-              <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
-            </div>
-
-            {/* ストラテジー選択 */}
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
-                Strategy
-              </span>
-              <div className="flex-1">
-                <select
-                  value={entry.themeStrategy || 'sequential'}
-                  onChange={e => {
-                    const strategyId = e.target.value;
-                    setThemeEntries(prev => {
-                      const next = prev.map(t => t.localId === entry.localId
-                        ? { ...t, themeStrategy: strategyId, strategyConfig: {} }
-                        : t
-                      );
-                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                      return next;
-                    });
-                  }}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                >
-                  {THEME_STRATEGIES.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-400 mt-1">
-                  {THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'))?.description}
-                </p>
-                {/* ストラテジー固有の設定フィールド */}
-                {(() => {
-                  const strategy = THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'));
-                  if (!strategy || strategy.configFields.length === 0) return null;
-                  return (
-                    <div className="mt-2 flex flex-wrap gap-3">
-                      {strategy.configFields.map(field => (
-                        <div key={field.key} className={`flex items-center gap-2 ${field.type === 'text' ? 'w-full' : ''}`}>
-                          <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
-                          {field.type === 'number' && (
-                            <input
-                              type="number"
-                              min={field.min}
-                              max={field.max}
-                              value={entry.strategyConfig[field.key] ?? field.default}
-                              onChange={ev => {
-                                const val = parseInt(ev.target.value);
-                                const v = isNaN(val) ? field.default : val;
-                                setThemeEntries(prev => {
-                                  const next = prev.map(t => t.localId === entry.localId
-                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: v } }
-                                    : t
-                                  );
-                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                                  return next;
-                                });
-                              }}
-                              className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                            />
-                          )}
-                          {field.type === 'text' && (
-                            <input
-                              type="text"
-                              value={entry.strategyConfig[field.key] ?? field.default}
-                              placeholder={field.placeholder ?? ''}
-                              onChange={ev => {
-                                const val = ev.target.value;
-                                setThemeEntries(prev => {
-                                  const next = prev.map(t => t.localId === entry.localId
-                                    ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
-                                    : t
-                                  );
-                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                                  return next;
-                                });
-                              }}
-                              className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                            />
-                          )}
-                        </div>
-                      ))}
+            {/* テーマカード一覧 */}
+            <div className="flex flex-col gap-3 mt-3">
+              {themeEntries.map((entry, idx) => {
+                // フロー役割タブが有効な場合、このテーマ×役割に割り当てられたペルソナIDリスト
+                const rolePersonaIds: string[] = hasMultiRoles ? (entry.flowRoleMap[activeRole] ?? []) : [];
+                return (
+                  <div key={entry.localId} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    {/* テーマ入力行 */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
+                        Theme {idx + 1}
+                      </span>
+                      <textarea
+                        ref={element => {
+                          themeTextRefs.current[entry.localId] = element;
+                        }}
+                        value={entry.text}
+                        onChange={e => {
+                          updateText(entry.localId, e.target.value);
+                          resizeTextarea(e.target);
+                        }}
+                        placeholder="テーマを入力..."
+                        rows={3}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none overflow-hidden"
+                      />
+                      <button
+                        onClick={() => removeTheme(entry.localId)}
+                        disabled={themeEntries.length === 1}
+                        className="mt-1.5 p-1.5 text-gray-300 hover:text-red-500 disabled:opacity-20 transition-colors"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                  );
-                })()}
-              </div>
-              <div className="w-[22px] shrink-0" />
-            </div>
 
-            {/* 発言順設定 */}
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">
-                Order
-              </span>
-              <div className="flex-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={entry.useCustomOrder}
-                    onChange={e => {
-                      const enabled = e.target.checked;
-                      setThemeEntries(prev => {
-                        const next = prev.map(t => {
-                          if (t.localId !== entry.localId) return t;
-                          // 有効化時: 現在のテーマの有効ペルソナでリストを初期化
-                          const initOrder = enabled && t.personaOrder.length === 0
-                            ? personas
-                                .filter(p => activePersonaIds.has(p.id) && isActive(t, p.id))
-                                .map(p => p.id)
-                            : t.personaOrder;
-                          return { ...t, useCustomOrder: enabled, personaOrder: initOrder };
-                        });
-                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                        return next;
-                      });
-                    }}
-                    className="w-3.5 h-3.5 accent-blue-600"
-                  />
-                  <span className="text-xs text-gray-600">カスタム順を使用</span>
-                </label>
-                {entry.useCustomOrder && (
-                  <div className="mt-2 flex flex-col gap-1">
-                    {entry.personaOrder
-                      .map(pid => personas.find(p => p.id === pid))
-                      .filter((p): p is typeof personas[0] => p !== undefined)
-                      .map((p, i, arr) => (
-                        <div key={p.id} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400 w-5 text-right">{i + 1}.</span>
-                          <span className="text-xs font-medium text-gray-700 flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1">
-                            {p.name}
-                          </span>
-                          <button
-                            disabled={i === 0}
-                            onClick={() => {
-                              setThemeEntries(prev => {
-                                const next = prev.map(t => {
-                                  if (t.localId !== entry.localId) return t;
-                                  const order = [...t.personaOrder];
-                                  [order[i - 1], order[i]] = [order[i], order[i - 1]];
-                                  return { ...t, personaOrder: order };
-                                });
-                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                                return next;
-                              });
-                            }}
-                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
-                          >
-                            <ArrowUp size={12} />
-                          </button>
-                          <button
-                            disabled={i === arr.length - 1}
-                            onClick={() => {
-                              setThemeEntries(prev => {
-                                const next = prev.map(t => {
-                                  if (t.localId !== entry.localId) return t;
-                                  const order = [...t.personaOrder];
-                                  [order[i], order[i + 1]] = [order[i + 1], order[i]];
-                                  return { ...t, personaOrder: order };
-                                });
-                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
-                                return next;
-                              });
-                            }}
-                            className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
-                          >
-                            <ArrowDown size={12} />
-                          </button>
-                        </div>
-                      ))}
-                    {entry.personaOrder.length === 0 && (
-                      <p className="text-xs text-gray-400 mt-1">ペルソナが選択されていません</p>
-                    )}
+                    {/* ペルソナ選択 */}
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      {hasMultiRoles ? (
+                        /* グループ役割: チップで複数選択 */
+                        <>
+                          <span className="text-xs text-gray-400">{activeRole}:</span>
+                          {personas.filter(p => activePersonaIds.has(p.id) && isActive(entry, p.id)).length === 0 ? (
+                            <span className="text-xs text-red-400">ペルソナが選択されていません</span>
+                          ) : (
+                            personas.filter(p => activePersonaIds.has(p.id) && isActive(entry, p.id)).map(p => {
+                              const assigned = rolePersonaIds.includes(p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  onClick={() => {
+                                    setThemeEntries(prev => {
+                                      const next = prev.map(t => {
+                                        if (t.localId !== entry.localId) return t;
+                                        const newMap = { ...t.flowRoleMap };
+                                        const current = newMap[activeRole] ?? [];
+                                        if (assigned) {
+                                          newMap[activeRole] = current.filter(id => id !== p.id);
+                                        } else {
+                                          newMap[activeRole] = [...current, p.id];
+                                        }
+                                        if (newMap[activeRole].length === 0) delete newMap[activeRole];
+                                        return { ...t, flowRoleMap: newMap };
+                                      });
+                                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                      return next;
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                                    assigned
+                                      ? 'bg-blue-100 border-blue-400 text-blue-700'
+                                      : 'bg-gray-100 border-gray-200 text-gray-400'
+                                  }`}
+                                >
+                                  {p.name}
+                                </button>
+                              );
+                            })
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs text-gray-400">参加:</span>
+                          {personas.filter(p => activePersonaIds.has(p.id)).length === 0 ? (
+                            <span className="text-xs text-red-400">ペルソナが選択されていません</span>
+                          ) : (
+                            personas.filter(p => activePersonaIds.has(p.id)).map(p => {
+                              const active = isActive(entry, p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  onClick={() => togglePersona(entry.localId, p.id)}
+                                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                                    active
+                                      ? 'bg-blue-100 border-blue-400 text-blue-700'
+                                      : 'bg-gray-100 border-gray-200 text-gray-400 line-through'
+                                  }`}
+                                >
+                                  {p.name}
+                                </button>
+                              );
+                            })
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* テーマ設定タブ */}
+                    {(() => {
+                      const activeTab = themeTab[entry.localId] ?? 'basic';
+                      const tabs = [
+                        { id: 'basic', label: '基本設定' },
+                        { id: 'strategy', label: 'ストラテジー' },
+                        { id: 'order', label: '発言順' },
+                      ];
+                      return (
+                        <>
+                          <div className="flex border-b border-gray-200 mb-3 -mx-4 px-4">
+                            {tabs.map(tab => (
+                              <button
+                                key={tab.id}
+                                onClick={() => setThemeTab(prev => ({ ...prev, [entry.localId]: tab.id }))}
+                                className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                                  activeTab === tab.id
+                                    ? 'border-blue-500 text-blue-600'
+                                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* 基本設定タブ */}
+                          {activeTab === 'basic' && (
+                            <div>
+                              <div className="flex items-start gap-3 mb-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">Format</span>
+                                <textarea
+                                  value={entry.outputFormat}
+                                  onChange={e => updateOutputFormat(entry.localId, e.target.value)}
+                                  placeholder="出力フォーマットを指定（空=デフォルト）"
+                                  rows={2}
+                                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+                                />
+                              </div>
+                              <div className="flex items-start gap-3 mb-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">Pre-Info</span>
+                                <div className="flex-1">
+                                  <textarea
+                                    value={entry.preInfo}
+                                    onChange={e => updateThemePreInfo(entry.localId, e.target.value)}
+                                    placeholder="テーマ固有の事前情報（テンプレート変数使用可）"
+                                    rows={2}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+                                  />
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    変数: <code className="bg-gray-100 px-1 rounded">{`{{theme1_summary}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_messages}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_agent:名前}}`}</code> （番号は1始まり）
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 mb-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">Turns</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={50}
+                                  value={entry.turnsPerTheme ?? ''}
+                                  onChange={e => {
+                                    const v = e.target.value === '' ? null : parseInt(e.target.value) || 1;
+                                    setThemeEntries(prev => {
+                                      const next = prev.map(t => t.localId === entry.localId ? { ...t, turnsPerTheme: v } : t);
+                                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder={String(turnsPerTheme)}
+                                  className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                />
+                                <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
+                              </div>
+                              {/* タスク割り当てモード */}
+                              {allTasks.filter(t => activeTaskIds.has(t.id)).length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-gray-100">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">Task</span>
+                                    <select
+                                      value={entry.taskAssignment}
+                                      onChange={e => {
+                                        const mode = e.target.value;
+                                        setThemeEntries(prev => {
+                                          const next = prev.map(t => t.localId === entry.localId
+                                            ? { ...t, taskAssignment: mode, personaTaskMap: mode === 'fixed' ? t.personaTaskMap : {} }
+                                            : t
+                                          );
+                                          saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                          return next;
+                                        });
+                                      }}
+                                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-blue-500 bg-white"
+                                    >
+                                      <option value="">デフォルト（ラウンドロビン）</option>
+                                      <option value="random">ランダム</option>
+                                      <option value="round_robin">ラウンドロビン</option>
+                                      <option value="fixed">固定割り当て</option>
+                                    </select>
+                                  </div>
+                                  {entry.taskAssignment === 'fixed' && (() => {
+                                    const activeTasks = allTasks.filter(t => activeTaskIds.has(t.id));
+                                    const themePersonas = personas.filter(p =>
+                                      activePersonaIds.has(p.id) && isActive(entry, p.id)
+                                    );
+                                    return (
+                                      <div className="ml-2 pl-2 border-l-2 border-gray-100 space-y-1.5">
+                                        {themePersonas.map(p => (
+                                          <div key={p.id} className="flex items-center gap-2">
+                                            <span className="text-xs text-gray-500 w-28 shrink-0 truncate">{p.name}:</span>
+                                            <select
+                                              value={entry.personaTaskMap[p.id] ?? ''}
+                                              onChange={ev => {
+                                                const tid = ev.target.value;
+                                                setThemeEntries(prev => {
+                                                  const next = prev.map(t => {
+                                                    if (t.localId !== entry.localId) return t;
+                                                    const newMap = { ...t.personaTaskMap };
+                                                    if (tid) { newMap[p.id] = tid; } else { delete newMap[p.id]; }
+                                                    return { ...t, personaTaskMap: newMap };
+                                                  });
+                                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                  return next;
+                                                });
+                                              }}
+                                              className="border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 bg-white flex-1 min-w-0"
+                                            >
+                                              <option value="">（ランダム）</option>
+                                              {activeTasks.map(t => (
+                                                <option key={t.id} value={t.id}>{t.description.substring(0, 40)}{t.description.length > 40 ? '...' : ''}</option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                              {/* 単一役割のテーマ個別オーバーライド */}
+                              {(() => {
+                                const singleRoles = (flow?.flowRoles ?? []).filter(r => !r.multi);
+                                if (singleRoles.length === 0) return null;
+                                const defaults: Record<string, string> = flowConfig._role_defaults ?? {};
+                                const hasOverride = singleRoles.some(r => (entry.flowRoleMap[r.name] ?? []).length > 0);
+                                return (
+                                  <details className="mt-2 mb-1" open={hasOverride}>
+                                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                                      役割の個別設定
+                                    </summary>
+                                    <div className="mt-2 space-y-1.5 pl-2 border-l-2 border-gray-100">
+                                      {singleRoles.map(role => {
+                                        const overrideIds = entry.flowRoleMap[role.name] ?? [];
+                                        const overrideId = overrideIds[0] ?? '';
+                                        const defaultPersona = defaults[role.name]
+                                          ? personas.find(p => p.id === defaults[role.name])
+                                          : null;
+                                        return (
+                                          <div key={role.name} className="flex items-center gap-2">
+                                            <label className="text-xs text-gray-500 w-36 shrink-0">{role.name}:</label>
+                                            <select
+                                              value={overrideId}
+                                              onChange={ev => {
+                                                const pid = ev.target.value;
+                                                setThemeEntries(prev => {
+                                                  const next = prev.map(t => {
+                                                    if (t.localId !== entry.localId) return t;
+                                                    const newMap = { ...t.flowRoleMap };
+                                                    if (pid) {
+                                                      newMap[role.name] = [pid];
+                                                    } else {
+                                                      delete newMap[role.name];
+                                                    }
+                                                    return { ...t, flowRoleMap: newMap };
+                                                  });
+                                                  saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                  return next;
+                                                });
+                                              }}
+                                              className="border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 bg-white"
+                                            >
+                                              <option value="">
+                                                {defaultPersona
+                                                  ? `（共通: ${defaultPersona.name}）`
+                                                  : '（共通設定を使用）'}
+                                              </option>
+                                              {personas.filter(p => activePersonaIds.has(p.id)).map(p => (
+                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </details>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {/* ストラテジータブ */}
+                          {activeTab === 'strategy' && (
+                            <div>
+                              <select
+                                value={entry.themeStrategy || 'sequential'}
+                                onChange={e => {
+                                  const strategyId = e.target.value;
+                                  setThemeEntries(prev => {
+                                    const next = prev.map(t => t.localId === entry.localId
+                                      ? { ...t, themeStrategy: strategyId, strategyConfig: {} }
+                                      : t
+                                    );
+                                    saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                    return next;
+                                  });
+                                }}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                              >
+                                {THEME_STRATEGIES.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              <p className="text-xs text-gray-400 mt-1 mb-2">
+                                {THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'))?.description}
+                              </p>
+                              {(() => {
+                                const strategy = THEME_STRATEGIES.find(s => s.id === (entry.themeStrategy || 'sequential'));
+                                if (!strategy || strategy.configFields.length === 0) return null;
+                                return (
+                                  <div className="flex flex-wrap gap-3">
+                                    {strategy.configFields.map(field => (
+                                      <div key={field.key} className={`flex gap-2 ${field.type === 'slot_prompts' || field.type === 'role_map' ? 'w-full items-start' : 'items-center'} ${field.type === 'text' ? 'w-full' : ''}`}>
+                                        <label className="text-xs text-gray-500 shrink-0">{field.label}:</label>
+                                        {field.type === 'number' && (
+                                          <input
+                                            type="number"
+                                            min={field.min}
+                                            max={field.max}
+                                            value={entry.strategyConfig[field.key] ?? field.default}
+                                            onChange={ev => {
+                                              const val = parseInt(ev.target.value);
+                                              const v = isNaN(val) ? field.default : val;
+                                              setThemeEntries(prev => {
+                                                const next = prev.map(t => t.localId === entry.localId
+                                                  ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: v } }
+                                                  : t
+                                                );
+                                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                return next;
+                                              });
+                                            }}
+                                            className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                          />
+                                        )}
+                                        {field.type === 'text' && (
+                                          <input
+                                            type="text"
+                                            value={entry.strategyConfig[field.key] ?? field.default}
+                                            placeholder={field.placeholder ?? ''}
+                                            onChange={ev => {
+                                              const val = ev.target.value;
+                                              setThemeEntries(prev => {
+                                                const next = prev.map(t => t.localId === entry.localId
+                                                  ? { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: val } }
+                                                  : t
+                                                );
+                                                saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                return next;
+                                              });
+                                            }}
+                                            className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                          />
+                                        )}
+                                        {field.type === 'role_map' && (() => {
+                                          const roleMap: Record<string, string> = entry.strategyConfig[field.key] ?? {};
+                                          const availableRoles = field.roles ?? [];
+                                          const themePersonas = personas.filter(p =>
+                                            activePersonaIds.has(p.id) && isActive(entry, p.id)
+                                          );
+                                          if (themePersonas.length === 0) return null;
+                                          return (
+                                            <div className="w-full mt-1 space-y-1">
+                                              {themePersonas.map(p => (
+                                                <div key={p.id} className="flex items-center gap-2">
+                                                  <span className="text-xs text-gray-600 w-32 truncate" title={p.name}>{p.name}</span>
+                                                  <select
+                                                    value={roleMap[p.id] ?? ''}
+                                                    onChange={ev => {
+                                                      const role = ev.target.value;
+                                                      setThemeEntries(prev => {
+                                                        const next = prev.map(t => {
+                                                          if (t.localId !== entry.localId) return t;
+                                                          const newRoleMap = { ...roleMap };
+                                                          if (role) { newRoleMap[p.id] = role; } else { delete newRoleMap[p.id]; }
+                                                          return { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: newRoleMap } };
+                                                        });
+                                                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                        return next;
+                                                      });
+                                                    }}
+                                                    className="border border-gray-300 rounded px-2 py-0.5 text-xs outline-none focus:border-blue-500 bg-white"
+                                                  >
+                                                    <option value="">（自動）</option>
+                                                    {availableRoles.map(r => (<option key={r} value={r}>{r}</option>))}
+                                                  </select>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
+                                        {field.type === 'slot_prompts' && (() => {
+                                          const slotPrompts: Record<string, { stance_prompt?: string }> = entry.strategyConfig[field.key] ?? {};
+                                          const availableRoles = field.roles ?? [];
+                                          if (availableRoles.length === 0) return null;
+                                          return (
+                                            <div className="w-full mt-1 space-y-2">
+                                              {availableRoles.map(role => (
+                                                <div key={role} className="flex items-start gap-2">
+                                                  <span className="text-xs text-gray-600 w-24 shrink-0 pt-1 font-medium">{role}</span>
+                                                  <textarea
+                                                    value={slotPrompts[role]?.stance_prompt ?? ''}
+                                                    onChange={ev => {
+                                                      const text = ev.target.value;
+                                                      setThemeEntries(prev => {
+                                                        const next = prev.map(t => {
+                                                          if (t.localId !== entry.localId) return t;
+                                                          const newSlotPrompts = { ...slotPrompts };
+                                                          if (text.trim()) { newSlotPrompts[role] = { stance_prompt: text }; } else { delete newSlotPrompts[role]; }
+                                                          return { ...t, strategyConfig: { ...t.strategyConfig, [field.key]: newSlotPrompts } };
+                                                        });
+                                                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                                        return next;
+                                                      });
+                                                    }}
+                                                    placeholder={`${role} の立場・ミッションを記述（省略可）`}
+                                                    rows={2}
+                                                    className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {/* 発言順タブ */}
+                          {activeTab === 'order' && (
+                            <div>
+                              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                                <input
+                                  type="checkbox"
+                                  checked={entry.useCustomOrder}
+                                  onChange={e => {
+                                    const enabled = e.target.checked;
+                                    setThemeEntries(prev => {
+                                      const next = prev.map(t => {
+                                        if (t.localId !== entry.localId) return t;
+                                        const initOrder = enabled && t.personaOrder.length === 0
+                                          ? personas
+                                              .filter(p => activePersonaIds.has(p.id) && isActive(t, p.id))
+                                              .map(p => p.id)
+                                          : t.personaOrder;
+                                        return { ...t, useCustomOrder: enabled, personaOrder: initOrder };
+                                      });
+                                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-3.5 h-3.5 accent-blue-600"
+                                />
+                                <span className="text-xs text-gray-600">カスタム順を使用</span>
+                              </label>
+                              {entry.useCustomOrder && (
+                                <div className="flex flex-col gap-1">
+                                  {entry.personaOrder
+                                    .map(pid => personas.find(p => p.id === pid))
+                                    .filter((p): p is typeof personas[0] => p !== undefined)
+                                    .map((p, i, arr) => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-400 w-5 text-right">{i + 1}.</span>
+                                        <span className="text-xs font-medium text-gray-700 flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                                          {p.name}
+                                        </span>
+                                        <button
+                                          disabled={i === 0}
+                                          onClick={() => {
+                                            setThemeEntries(prev => {
+                                              const next = prev.map(t => {
+                                                if (t.localId !== entry.localId) return t;
+                                                const order = [...t.personaOrder];
+                                                [order[i - 1], order[i]] = [order[i], order[i - 1]];
+                                                return { ...t, personaOrder: order };
+                                              });
+                                              saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                              return next;
+                                            });
+                                          }}
+                                          className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                                        >
+                                          <ArrowUp size={12} />
+                                        </button>
+                                        <button
+                                          disabled={i === arr.length - 1}
+                                          onClick={() => {
+                                            setThemeEntries(prev => {
+                                              const next = prev.map(t => {
+                                                if (t.localId !== entry.localId) return t;
+                                                const order = [...t.personaOrder];
+                                                [order[i], order[i + 1]] = [order[i + 1], order[i]];
+                                                return { ...t, personaOrder: order };
+                                              });
+                                              saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                              return next;
+                                            });
+                                          }}
+                                          className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                                        >
+                                          <ArrowDown size={12} />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  {entry.personaOrder.length === 0 && (
+                                    <p className="text-xs text-gray-400 mt-1">ペルソナが選択されていません</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
-                )}
-              </div>
-              <div className="w-[22px] shrink-0" />
+                );
+              })}
             </div>
 
-            {/* ペルソナ選択チップ（アクティブなペルソナのみ表示） */}
-            <div className="flex items-center gap-2 flex-wrap pl-[4.75rem]">
-              <span className="text-xs text-gray-400">参加:</span>
-              {personas.filter(p => activePersonaIds.has(p.id)).length === 0 ? (
-                <span className="text-xs text-red-400">ペルソナが選択されていません</span>
-              ) : (
-                personas.filter(p => activePersonaIds.has(p.id)).map(p => {
-                  const active = isActive(entry, p.id);
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => togglePersona(entry.localId, p.id)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        active
-                          ? 'bg-blue-100 border-blue-400 text-blue-700'
-                          : 'bg-gray-100 border-gray-200 text-gray-400 line-through'
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <button
-        onClick={addTheme}
-        className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium self-start transition-colors"
-      >
-        <Plus size={15} /> テーマを追加
-      </button>
+            <button
+              onClick={addTheme}
+              className="mt-3 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium self-start transition-colors"
+            >
+              <Plus size={15} /> テーマを追加
+            </button>
+          </>
+        );
+      })()}
 
       {/* ペルソナプリセット選択 */}
       <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">

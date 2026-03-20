@@ -18,6 +18,8 @@ dynamic_generation.py
   - meta_agent_index    : メタエージェント役のインデックス（デフォルト: 0）
   - max_generated       : 同時生成する最大ペルソナ数（デフォルト: 3）
   - generation_guideline: 編成指針（省略可）
+  - role_map            : ペルソナIDと役割のマッピング（省略可）
+                          例: {"persona_id_1": "meta_agent"}
 """
 
 import uuid
@@ -25,6 +27,7 @@ import uuid
 from ...models import MessageHistory, Persona, RagConfig
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
+from ..role_resolver import resolve_role
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 # メタエージェント用プロンプト
@@ -64,11 +67,11 @@ class DynamicGenerationStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        meta_agent_index = min(int(config.get("meta_agent_index", 0)), len(active) - 1)
+        # 役割解決: role_map → index → デフォルト
+        meta_agent = resolve_role("meta_agent", active, config, "meta_agent_index", default_index=0)
         max_generated = max(1, int(config.get("max_generated", 3)))
         generation_guideline = config.get("generation_guideline", "")
 
-        meta_agent = active[meta_agent_index]
         generation_guideline_section = (
             f"編成指針: {generation_guideline}\n" if generation_guideline else ""
         )

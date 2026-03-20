@@ -79,12 +79,25 @@ _TASK_STRATEGY_MAP: dict[str, Callable[[List[TaskModel], Persona, SessionMemory]
 
 
 def _select_task(tasks: List[TaskModel], persona: Persona, session: SessionMemory) -> TaskModel:
-    strategy_fn = _TASK_STRATEGY_MAP.get(TASK_SELECTION_STRATEGY)
-    if strategy_fn is None:
-        raise ValueError(
-            f"未知の TASK_SELECTION_STRATEGY: '{TASK_SELECTION_STRATEGY}'. "
-            f"有効な値: {list(_TASK_STRATEGY_MAP.keys())}"
-        )
+    theme_cfg = session.current_theme_config
+    assignment = (theme_cfg.task_assignment if theme_cfg and theme_cfg.task_assignment else "")
+
+    # fixed モード: ペルソナ→タスク固定マッピング
+    if assignment == "fixed" and theme_cfg and theme_cfg.persona_task_map:
+        fixed_task_id = theme_cfg.persona_task_map.get(persona.id)
+        if fixed_task_id:
+            match = next((t for t in tasks if t.id == fixed_task_id), None)
+            if match:
+                session.last_task_id = match.id
+                return match
+        # マッピングになければランダムフォールバック
+        chosen = random.choice(tasks)
+        session.last_task_id = chosen.id
+        return chosen
+
+    # テーマ指定 or グローバル設定のストラテジー
+    strategy_name = assignment if assignment else TASK_SELECTION_STRATEGY
+    strategy_fn = _TASK_STRATEGY_MAP.get(strategy_name, _assign_random)
     chosen = strategy_fn(tasks, persona, session)
     session.last_task_id = chosen.id
     return chosen
@@ -96,6 +109,7 @@ def build_agent_input(
     session: SessionMemory,
     persona: Persona,
     output_format: str = "",
+    stance_prompt: str = "",
 ) -> AgentInput:
     """セッション状態とペルソナからエージェントへの入力を構築する。
 
@@ -107,6 +121,8 @@ def build_agent_input(
         今回発言するペルソナ。
     output_format : str, optional
         出力フォーマット文字列。空の場合は DEFAULT_OUTPUT_FORMAT を使用。
+    stance_prompt : str, optional
+        ストラテジの役割に応じたスタンスプロンプト。空の場合は省略される。
 
     Returns
     -------
@@ -192,6 +208,7 @@ def build_agent_input(
         rag_context=rag_context,
         pre_info=pre_info,
         previous_summaries=session.summary_memory,
+        stance_prompt=stance_prompt,
         history_compressed=history_compressed,
         output_format=(
             output_format

@@ -24,6 +24,7 @@ import logging
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import FLOW_ROUTER_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_stance_prompt, build_flow_role_config
 from .base import ProjectFlow, FlowContext
 
 logger = logging.getLogger("bsapp.flows.conditional")
@@ -43,12 +44,10 @@ class ConditionalFlow(ProjectFlow):
         session = ctx.session
         config = session.flow_config
 
-        router_index = min(int(config.get("router_index", 0)), len(session.personas) - 1)
         routing_rules = config.get("routing_rules", "")
         default_max = len(session.themes) * 3
         max_total = max(len(session.themes), int(config.get("max_total_themes", default_max)))
 
-        router = session.personas[router_index]
         routing_rules_section = (
             f"分岐ルール: {routing_rules}\n\n" if routing_rules else ""
         )
@@ -70,9 +69,17 @@ class ConditionalFlow(ProjectFlow):
             executed_count += 1
 
             # ------------------------------------------------------------------
-            # ルーターが次のテーマを選択
+            # テーマごとの flow_role_map でルーターを解決
             # ------------------------------------------------------------------
-            router_input = build_agent_input(session, router)
+            theme_cfg = session.current_theme_config
+            frm = build_flow_role_config(
+                theme_cfg.flow_role_map if theme_cfg else None, config)
+            active = session.active_personas or session.personas
+            router = resolve_role("router", active, frm, "router_index",
+                                  default_index=int(config.get("router_index", 0)))
+            router_stance = resolve_stance_prompt("router", {**frm, **{k: v for k, v in config.items() if k == "slot_prompts"}})
+
+            router_input = build_agent_input(session, router, stance_prompt=router_stance)
             router_input.query = FLOW_ROUTER_PROMPT_TEMPLATE.format(
                 theme_list=theme_list,
                 current_theme=current_theme,

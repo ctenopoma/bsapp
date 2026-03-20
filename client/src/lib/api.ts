@@ -95,6 +95,13 @@ export function apiStartSession(req: SessionStartRequest): Promise<SessionStartR
   return request('/api/session/start', { method: 'POST', body: JSON.stringify(req) });
 }
 
+export function apiGenerateTitle(themes: string[], commonTheme: string): Promise<{ title: string }> {
+  return request('/api/session/generate-title', {
+    method: 'POST',
+    body: JSON.stringify({ themes, common_theme: commonTheme }),
+  });
+}
+
 export function apiStartTurn(sessionId: string): Promise<TurnStartResponse> {
   return request(`/api/session/${sessionId}/turn/start`, { method: 'POST' });
 }

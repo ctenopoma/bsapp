@@ -24,6 +24,7 @@ import logging
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import TOURNAMENT_JUDGE_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_stance_prompt, build_flow_role_config
 from .base import ProjectFlow, FlowContext
 
 logger = logging.getLogger("bsapp.flows.tournament")
@@ -44,14 +45,13 @@ class TournamentFlow(ProjectFlow):
         config = session.flow_config
 
         num_lanes = max(1, int(config.get("num_lanes", 2)))
-        raw_judge = int(config.get("judge_index", -1))
-        judge_index = (
-            len(session.personas) - 1 if raw_judge < 0
-            else min(raw_judge, len(session.personas) - 1)
-        )
         evaluation_criteria = config.get("evaluation_criteria", "")
 
-        judge = session.personas[judge_index]
+        # judge はレーン全体を評価するためグローバル解決
+        judge = resolve_role("judge", session.personas,
+                             build_flow_role_config(None, config),
+                             "judge_index",
+                             default_index=int(config.get("judge_index", -1)))
         evaluation_criteria_section = (
             f"評価基準: {evaluation_criteria}\n\n" if evaluation_criteria else ""
         )

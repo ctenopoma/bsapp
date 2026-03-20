@@ -44,6 +44,9 @@ export interface ThemeConfig {
   theme_strategy?: string; // テーマ内ストラテジー（空=sequential）
   strategy_config?: Record<string, any>; // ストラテジー固有の設定
   persona_order?: string[]; // ペルソナIDの発言順序（空=ストラテジー任せ）
+  flow_role_map?: Record<string, string | string[]>; // フロー役割マッピング（役割名 → ペルソナID or ID[]）
+  task_assignment?: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
+  persona_task_map?: Record<string, string>; // fixed時のペルソナID→タスクIDマッピング
 }
 
 // テーマ内ストラテジーの定義
@@ -57,12 +60,13 @@ export interface ThemeStrategyOption {
 export interface ThemeStrategyConfigField {
   key: string;
   label: string;
-  type: 'number' | 'select' | 'text';
+  type: 'number' | 'select' | 'text' | 'role_map' | 'slot_prompts';
   default: any;
   min?: number;
   max?: number;
   options?: { value: any; label: string }[];
   placeholder?: string;
+  roles?: string[]; // role_map / slot_prompts type 用: 利用可能な役割名リスト
 }
 
 // 利用可能なストラテジー定義
@@ -84,6 +88,20 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         type: 'number',
         default: 0,
         min: 0,
+      },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['facilitator', 'member'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['facilitator', 'member'],
       },
     ],
   },
@@ -129,12 +147,26 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: '',
         placeholder: '例: 実現可能性と具体性の両方が満たされていること',
       },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['manager', 'worker'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['manager', 'worker'],
+      },
     ],
   },
   {
     id: 'adversarial',
     name: '敵対的・レッドチーム（生成・批判）',
-    description: '生成役が提案し、批判役がダメ出し、修正を繰り返して提案の質を高めます。',
+    description: '生成役が提案し、批判役がJSON評価でダメ出し、修正を繰り返して提案の質を高めます。批判役が問題なしと判定すれば早期終了します。',
     configFields: [
       {
         key: 'generator_index',
@@ -165,12 +197,34 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: '',
         placeholder: '例: セキュリティ面から、コスト面から',
       },
+      {
+        key: 'max_retry_per_phase',
+        label: 'リトライ上限（上限到達で打ち切り）',
+        type: 'number',
+        default: 3,
+        min: 1,
+        max: 10,
+      },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['generator', 'critic'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['generator', 'critic'],
+      },
     ],
   },
   {
     id: 'judge_jury',
     name: '陪審員・裁判官（Judge & Jury）',
-    description: 'ディベーター間で議論し、最後に裁判官が全履歴を読んで最終判定を下します。',
+    description: 'ディベーター間で議論し、最後に裁判官が全履歴を読んでJSON形式で最終判定を下します。',
     configFields: [
       {
         key: 'judge_index',
@@ -192,6 +246,20 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         type: 'text',
         default: '',
         placeholder: '例: 実現可能性・独自性・社会的インパクトの3点で評価',
+      },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['judge', 'debater'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['judge', 'debater'],
       },
     ],
   },
@@ -222,6 +290,20 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: '',
         placeholder: '例: 全員が同意した場合、または3つ以上の具体案が出た場合',
       },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['router', 'speaker'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['router', 'speaker'],
+      },
     ],
   },
   {
@@ -249,6 +331,20 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: 5,
         min: 1,
         max: 10,
+      },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['planner', 'worker', 'summarizer'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['planner', 'worker', 'summarizer'],
       },
     ],
   },
@@ -279,6 +375,20 @@ export const THEME_STRATEGIES: ThemeStrategyOption[] = [
         default: '',
         placeholder: '例: 技術・法律・ビジネスの専門家を含めること',
       },
+      {
+        key: 'role_map',
+        label: '役割マッピング（ペルソナID → 役割）',
+        type: 'role_map',
+        default: {},
+        roles: ['meta_agent'],
+      },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['meta_agent'],
+      },
     ],
   },
 ];
@@ -289,6 +399,7 @@ export interface ProjectFlowOption {
   name: string;
   description: string;
   configFields: ThemeStrategyConfigField[];
+  flowRoles?: { name: string; multi: boolean }[]; // フロー内の役割（multi=true: 複数ペルソナ選択可）
 }
 
 export const PROJECT_FLOWS: ProjectFlowOption[] = [
@@ -297,19 +408,16 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
     name: 'ウォーターフォール型（デフォルト）',
     description: 'テーマを定義順に1つずつ実行します。',
     configFields: [],
+    flowRoles: [],
   },
+  // NOTE: flowRoles format - { name: role_name, multi: true/false }
+  //   multi=false → single persona dropdown (gatekeeper, judge, etc.)
+  //   multi=true  → multiple persona chips (proponent camp, opponent camp, etc.)
   {
     id: 'stage_gate',
     name: 'ステージゲート型',
     description: '各テーマ完了後にゲートキーパーが品質チェックし、不合格なら差し戻します。',
     configFields: [
-      {
-        key: 'gatekeeper_index',
-        label: 'ゲートキーパー（先頭からの番号）',
-        type: 'number',
-        default: 0,
-        min: 0,
-      },
       {
         key: 'max_revisions',
         label: '最大差し戻し回数',
@@ -325,7 +433,15 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         default: '',
         placeholder: '例: 具体的なアクションアイテムが3つ以上含まれること',
       },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（役割ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['gatekeeper'],
+      },
     ],
+    flowRoles: [{ name: 'gatekeeper', multi: false }],
   },
   {
     id: 'agile_sprint',
@@ -341,12 +457,6 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         max: 10,
       },
       {
-        key: 'completion_judge_index',
-        label: '完成判定者（先頭からの番号、-1=最後）',
-        type: 'number',
-        default: -1,
-      },
-      {
         key: 'completion_criteria',
         label: '完成判定の基準（省略可）',
         type: 'text',
@@ -354,19 +464,13 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         placeholder: '例: 全テーマで実装可能な具体案が揃っていること',
       },
     ],
+    flowRoles: [{ name: 'completion_judge', multi: false }],
   },
   {
     id: 'conditional',
     name: '条件分岐/ツリー型',
     description: 'テーマの結論によってルーターが次のテーマを動的に選択します。',
     configFields: [
-      {
-        key: 'router_index',
-        label: 'ルーター（先頭からの番号）',
-        type: 'number',
-        default: 0,
-        min: 0,
-      },
       {
         key: 'max_total_themes',
         label: '最大実行テーマ総数（0=テーマ数×3）',
@@ -382,18 +486,13 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         placeholder: '例: 問題が特定された場合は解決策テーマへ、合意が得られた場合は実装テーマへ',
       },
     ],
+    flowRoles: [{ name: 'router', multi: false }],
   },
   {
     id: 'v_shape',
     name: 'V字型（実行＆逆順レビュー）',
     description: '全テーマを順番に実行した後、逆順でレビューして品質を担保します。',
     configFields: [
-      {
-        key: 'reviewer_index',
-        label: 'レビュアー（先頭からの番号、-1=最後）',
-        type: 'number',
-        default: -1,
-      },
       {
         key: 'review_focus',
         label: 'レビューの観点（省略可）',
@@ -402,19 +501,13 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         placeholder: '例: 前半の要件定義と後半の実装内容の整合性を確認',
       },
     ],
+    flowRoles: [{ name: 'reviewer', multi: false }],
   },
   {
     id: 'game_theory',
     name: 'ゲーム理論/対立型（陣営間ディベート）',
     description: '提案陣営と批判陣営が対立的に議論し、合意形成者が最終案を導きます。',
     configFields: [
-      {
-        key: 'split_index',
-        label: '陣営分割（この番号より前が提案陣営）',
-        type: 'number',
-        default: 1,
-        min: 1,
-      },
       {
         key: 'rounds',
         label: 'ラウンド数',
@@ -424,32 +517,27 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         max: 10,
       },
       {
-        key: 'agreement_judge_index',
-        label: '合意形成者（先頭からの番号、-1=最後）',
-        type: 'number',
-        default: -1,
-      },
-      {
         key: 'agreement_criteria',
         label: '合意の基準（省略可）',
         type: 'text',
         default: '',
         placeholder: '例: 実装コストと効果のバランスが取れた案であること',
       },
+      {
+        key: 'slot_prompts',
+        label: 'スタンスプロンプト（陣営ごとの立場・ミッション）',
+        type: 'slot_prompts',
+        default: {},
+        roles: ['proponent', 'opponent', 'agreement_judge'],
+      },
     ],
+    flowRoles: [{ name: 'proponent', multi: true }, { name: 'opponent', multi: true }, { name: 'agreement_judge', multi: false }],
   },
   {
     id: 'blackboard',
     name: 'ブラックボード型（共有黒板）',
     description: 'コーディネーターが黒板状態を読み、次の担当エージェントを動的に指名します。',
     configFields: [
-      {
-        key: 'coordinator_index',
-        label: 'コーディネーター（先頭からの番号）',
-        type: 'number',
-        default: 0,
-        min: 0,
-      },
       {
         key: 'max_total_turns',
         label: '最大ターン数（0=自動）',
@@ -465,6 +553,7 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         placeholder: '例: 全テーマについて具体的なアクションアイテムが出揃った時点',
       },
     ],
+    flowRoles: [{ name: 'coordinator', multi: false }],
   },
   {
     id: 'tournament',
@@ -480,12 +569,6 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         max: 5,
       },
       {
-        key: 'judge_index',
-        label: '審査員（先頭からの番号、-1=最後）',
-        type: 'number',
-        default: -1,
-      },
-      {
         key: 'evaluation_criteria',
         label: '審査基準（省略可）',
         type: 'text',
@@ -493,6 +576,7 @@ export const PROJECT_FLOWS: ProjectFlowOption[] = [
         placeholder: '例: 独自性・実現可能性・具体性の3点で評価',
       },
     ],
+    flowRoles: [{ name: 'judge', multi: false }],
   },
 ];
 

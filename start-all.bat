@@ -83,7 +83,7 @@ start "BSApp Frontend" cmd /k "cd /d ""!SCRIPT_DIR!\client"" && npm run dev"
 
 REM Open browser
 timeout /t 3 /nobreak >nul
-start "" "http://localhost:5173"
+start "" "http://localhost:1420"
 
 echo [INFO] Started. Browser will open automatically.
 endlocal

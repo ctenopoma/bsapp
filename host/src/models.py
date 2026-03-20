@@ -54,6 +54,7 @@ class AgentInput(BaseModel):
     rag_context: str = ""        # RAGが有効な場合に事前取得して渡す
     pre_info: str = ""           # セッション共通の事前情報
     previous_summaries: str = ""   # これまでの要約を結合したもの
+    stance_prompt: str = ""      # ストラテジ内の役割に応じたスタンス（立場・ミッション）プロンプト
     output_format: str = ""      # 出力フォーマット指定 (空の場合はデフォルト挙動)
     history_compressed: bool = False  # このターンで履歴圧縮が発生したか
 
@@ -70,6 +71,9 @@ class ThemeConfig(BaseModel):
     theme_strategy: str = ""  # テーマ内ストラテジー (空=sequential)
     strategy_config: Optional[dict] = None  # ストラテジー固有の設定
     persona_order: List[str] = Field(default_factory=list)  # ペルソナIDの発言順序 (空=ストラテジー任せ)
+    flow_role_map: dict = Field(default_factory=dict)  # フロー役割マッピング {persona_id: role_name} テーマ×立場のペルソナ割当
+    task_assignment: str = ""  # タスク割り当てモード: random / round_robin / fixed (空=グローバル設定)
+    persona_task_map: dict = Field(default_factory=dict)  # fixed時のペルソナID→タスクIDマッピング
 
 
 class SessionStartRequest(BaseModel):

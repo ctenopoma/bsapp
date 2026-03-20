@@ -491,6 +491,26 @@ async def create_session(
     return SessionOut(id=s.id, title=s.title, created_at=s.created_at.isoformat())
 
 
+class SessionUpdateBody(BaseModel):
+    title: str
+
+
+@router.patch("/sessions/{session_id}", response_model=SessionOut)
+async def update_session(
+    session_id: str,
+    body: SessionUpdateBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    s = await db.get(Session, session_id)
+    if not s or s.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    s.title = body.title
+    await db.commit()
+    await db.refresh(s)
+    return SessionOut(id=s.id, title=s.title, created_at=s.created_at.isoformat())
+
+
 @router.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,

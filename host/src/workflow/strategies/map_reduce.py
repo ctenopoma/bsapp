@@ -18,6 +18,8 @@ map_reduce.py
   - planner_index    : プランナー役のインデックス（デフォルト: 0）
   - summarizer_index : サマライザー役のインデックス（デフォルト: -1 = 最後のペルソナ）
   - max_subtasks     : 最大サブタスク数（デフォルト: 5）
+  - role_map         : ペルソナIDと役割のマッピング（省略可）
+                       例: {"persona_id_1": "planner", "persona_id_2": "worker", "persona_id_3": "summarizer"}
 """
 
 import uuid
@@ -25,6 +27,7 @@ import uuid
 from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
+from ..role_resolver import resolve_role, resolve_role_group, resolve_stance_prompt
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 # プランナー用プロンプト
@@ -69,27 +72,35 @@ class MapReduceStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        planner_index = min(int(config.get("planner_index", 0)), len(active) - 1)
-        raw_summarizer = int(config.get("summarizer_index", -1))
-        summarizer_index = len(active) - 1 if raw_summarizer < 0 else min(raw_summarizer, len(active) - 1)
+        # 役割解決: role_map → index → デフォルト
+        planner = resolve_role("planner", active, config, "planner_index", default_index=0)
+        summarizer_persona = resolve_role("summarizer", active, config, "summarizer_index", default_index=-1)
         # planner と summarizer が同じ場合は summarizer を隣にずらす
-        if summarizer_index == planner_index and len(active) > 1:
-            summarizer_index = (planner_index + 1) % len(active)
-        max_subtasks = max(1, int(config.get("max_subtasks", 5)))
+        if summarizer_persona.id == planner.id and len(active) > 1:
+            others = [p for p in active if p.id != planner.id]
+            summarizer_persona = others[0]
 
-        planner = active[planner_index]
-        summarizer = active[summarizer_index]
-        workers = [p for i, p in enumerate(active) if i not in (planner_index, summarizer_index)]
+        workers = resolve_role_group(
+            "worker", active, config,
+            exclude_ids={planner.id, summarizer_persona.id},
+        )
         # ワーカーが 0 人の場合はプランナー以外全員
         if not workers:
             workers = [p for p in active if p.id != planner.id]
         if not workers:
             workers = active  # 全員でフォールバック
 
+        max_subtasks = max(1, int(config.get("max_subtasks", 5)))
+
+        # スタンスプロンプト解決
+        planner_stance = resolve_stance_prompt("planner", config)
+        worker_stance = resolve_stance_prompt("worker", config)
+        summarizer_stance = resolve_stance_prompt("summarizer", config)
+
         # ------------------------------------------------------------------
         # Step 1: プランナーがサブタスクを JSON で生成
         # ------------------------------------------------------------------
-        plan_input = build_agent_input(session, planner)
+        plan_input = build_agent_input(session, planner, stance_prompt=planner_stance)
         plan_input.query += PLANNER_PROMPT_TEMPLATE.format(max_subtasks=max_subtasks)
         plan_response = ctx.agent_executor(plan_input)
 
@@ -116,7 +127,7 @@ class MapReduceStrategy(ThemeStrategy):
 
         for task_idx, subtask in enumerate(subtasks):
             worker = workers[task_idx % len(workers)]
-            worker_input = build_agent_input(session, worker)
+            worker_input = build_agent_input(session, worker, stance_prompt=worker_stance)
             worker_input.query += f"\n\n【担当サブタスク】\n{subtask}"
             result = ctx.agent_executor(worker_input)
 
@@ -138,7 +149,7 @@ class MapReduceStrategy(ThemeStrategy):
             f"【サブタスク {i + 1}: {subtask}】\n担当: {worker_name}\n{result}"
             for i, (subtask, worker_name, result) in enumerate(worker_results)
         )
-        summarizer_input = build_agent_input(session, summarizer)
+        summarizer_input = build_agent_input(session, summarizer_persona, stance_prompt=summarizer_stance)
         summarizer_input.query += SUMMARIZER_PROMPT_TEMPLATE.format(
             worker_results=worker_results_text,
         )
@@ -147,7 +158,7 @@ class MapReduceStrategy(ThemeStrategy):
         session.history.append(MessageHistory(
             id=uuid.uuid4().hex,
             theme=session.current_theme,
-            agent_name=f"{summarizer.name}（サマライザー）",
+            agent_name=f"{summarizer_persona.name}（サマライザー）",
             content=summary_message,
             turn_order=session.turn_count_in_theme,
         ))

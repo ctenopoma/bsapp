@@ -23,6 +23,7 @@ agile_sprint.py
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import SPRINT_COMPLETION_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_stance_prompt, build_flow_role_config
 from .base import ProjectFlow, FlowContext
 
 
@@ -41,11 +42,13 @@ class AgileSprintFlow(ProjectFlow):
         config = session.flow_config
 
         sprint_count = max(1, int(config.get("sprint_count", 2)))
-        raw_judge = int(config.get("completion_judge_index", -1))
-        judge_index = len(session.personas) - 1 if raw_judge < 0 else min(raw_judge, len(session.personas) - 1)
         completion_criteria = config.get("completion_criteria", "")
 
-        judge = session.personas[judge_index]
+        # completion_judge はスプリント全体を評価するためグローバル解決
+        judge = resolve_role("completion_judge", session.personas,
+                             build_flow_role_config(None, config),
+                             "completion_judge_index",
+                             default_index=int(config.get("completion_judge_index", -1)))
         completion_criteria_section = (
             f"完成基準: {completion_criteria}\n\n" if completion_criteria else ""
         )

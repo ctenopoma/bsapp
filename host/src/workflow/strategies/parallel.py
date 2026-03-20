@@ -12,6 +12,8 @@ parallel.py
 
 設定項目 (ThemeConfig.strategy_config):
   - facilitator_index: ファシリテーター役のペルソナインデックス（デフォルト: 0 = 先頭）
+  - role_map         : ペルソナIDと役割のマッピング（省略可）
+                       例: {"persona_id_1": "facilitator", "persona_id_2": "member", ...}
 """
 
 import uuid
@@ -19,6 +21,7 @@ from typing import List
 
 from ...models import MessageHistory
 from ..input_builder import build_agent_input
+from ..role_resolver import resolve_role, resolve_role_group, resolve_stance_prompt
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 
@@ -57,8 +60,12 @@ class ParallelStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        facilitator_index = int(config.get("facilitator_index", 0))
-        facilitator_index = min(facilitator_index, len(active) - 1)
+        # 役割解決: role_map → index → デフォルト
+        facilitator = resolve_role("facilitator", active, config, "facilitator_index", default_index=0)
+
+        # スタンスプロンプト解決
+        member_stance = resolve_stance_prompt("member", config)
+        facilitator_stance = resolve_stance_prompt("facilitator", config)
 
         # ------------------------------------------------------------------
         # Phase 1: 全ペルソナが独立して発言
@@ -67,7 +74,7 @@ class ParallelStrategy(ThemeStrategy):
         independent_messages: List[MessageHistory] = []
 
         for persona in active:
-            agent_input = build_agent_input(session, persona)
+            agent_input = build_agent_input(session, persona, stance_prompt=member_stance)
             # 独立発言: 他メンバーの発言履歴は含めない（現在のテーマの履歴のみ除外）
             agent_input.history = [
                 msg for msg in agent_input.history
@@ -89,13 +96,12 @@ class ParallelStrategy(ThemeStrategy):
         # ------------------------------------------------------------------
         # Phase 2: ファシリテーターが集約
         # ------------------------------------------------------------------
-        facilitator = active[facilitator_index]
         member_opinions = "\n\n".join(
             f"【{msg.agent_name}】\n{msg.content}"
             for msg in independent_messages
         )
 
-        facilitator_input = build_agent_input(session, facilitator)
+        facilitator_input = build_agent_input(session, facilitator, stance_prompt=facilitator_stance)
         # ファシリテーターのクエリに集約指示を追加
         facilitator_input.query += FACILITATOR_PROMPT_SUFFIX.format(
             member_opinions=member_opinions

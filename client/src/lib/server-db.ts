@@ -240,6 +240,13 @@ export async function createSession(id: string, title: string): Promise<void> {
   });
 }
 
+export async function updateSessionTitle(id: string, title: string): Promise<void> {
+  await _req(`/api/data/sessions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function getSessions(): Promise<SessionData[]> {
   return _req<SessionData[]>('/api/data/sessions');
 }

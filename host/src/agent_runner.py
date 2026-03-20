@@ -72,10 +72,17 @@ class AgentRunner:
             else "事前情報: なし"
         )
 
+        stance_section = (
+            f"【あなたの立場・ミッション】\n{agent_input.stance_prompt}"
+            if agent_input.stance_prompt
+            else ""
+        )
+
         prompt_template = PromptTemplate(
             input_variables=[
                 "role", "task", "name", "query",
-                "pre_info_section", "rag_section", "history", "previous_summaries", "output_format",
+                "pre_info_section", "stance_section", "rag_section",
+                "history", "previous_summaries", "output_format",
             ],
             template=get_settings().agent_prompt_template,
         )
@@ -86,6 +93,7 @@ class AgentRunner:
             name=agent_input.persona.name,
             query=agent_input.query,
             pre_info_section=pre_info_section,
+            stance_section=stance_section,
             rag_section=rag_section,
             history=recent_history,
             previous_summaries=agent_input.previous_summaries,

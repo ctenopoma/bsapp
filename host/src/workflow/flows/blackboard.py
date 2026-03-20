@@ -27,6 +27,7 @@ from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import BLACKBOARD_COORDINATOR_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_stance_prompt, build_flow_role_config
 from .base import ProjectFlow, FlowContext
 
 logger = logging.getLogger("bsapp.flows.blackboard")
@@ -46,14 +47,10 @@ class BlackboardFlow(ProjectFlow):
         session = ctx.session
         config = session.flow_config
 
-        coordinator_index = min(
-            int(config.get("coordinator_index", 0)), len(session.personas) - 1
-        )
         goal_condition = config.get("goal_condition", "")
         default_max = len(session.themes) * len(session.personas) * 3
         max_total_turns = max(1, int(config.get("max_total_turns", default_max)))
 
-        coordinator = session.personas[coordinator_index]
         goal_condition_section = (
             f"目標達成条件: {goal_condition}\n\n" if goal_condition else ""
         )
@@ -78,7 +75,16 @@ class BlackboardFlow(ProjectFlow):
                 or "（まだ発言なし）"
             )
 
-            coord_input = build_agent_input(session, coordinator)
+            # テーマごとの flow_role_map でコーディネーターを解決
+            theme_cfg = session.current_theme_config
+            frm = build_flow_role_config(
+                theme_cfg.flow_role_map if theme_cfg else None, config)
+            active = session.active_personas or session.personas
+            coordinator = resolve_role("coordinator", active, frm, "coordinator_index",
+                                       default_index=int(config.get("coordinator_index", 0)))
+            coordinator_stance = resolve_stance_prompt("coordinator", {**frm, **{k: v for k, v in config.items() if k == "slot_prompts"}})
+
+            coord_input = build_agent_input(session, coordinator, stance_prompt=coordinator_stance)
             coord_input.query = BLACKBOARD_COORDINATOR_PROMPT_TEMPLATE.format(
                 theme_list=theme_list,
                 persona_list=persona_list,

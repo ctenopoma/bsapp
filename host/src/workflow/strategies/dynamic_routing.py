@@ -19,6 +19,8 @@ dynamic_routing.py
   - router_index  : 司会者のインデックス（デフォルト: 0）
   - max_turns     : 最大ターン数（デフォルト: 10）
   - end_condition : 終了条件の説明（省略可）
+  - role_map      : ペルソナIDと役割のマッピング（省略可）
+                    例: {"persona_id_1": "router", "persona_id_2": "speaker", ...}
 """
 
 import uuid
@@ -26,6 +28,7 @@ import uuid
 from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
+from ..role_resolver import resolve_role, resolve_role_group, resolve_stance_prompt
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
 
 # ルーター用のシステムプロンプトサフィックス
@@ -71,12 +74,16 @@ class DynamicRoutingStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        router_index = min(int(config.get("router_index", 0)), len(active) - 1)
+        # 役割解決: role_map → index → デフォルト
+        router = resolve_role("router", active, config, "router_index", default_index=0)
+        speakers = resolve_role_group("speaker", active, config, exclude_ids={router.id})
+
         max_turns = max(1, int(config.get("max_turns", 10)))
         end_condition = config.get("end_condition", "")
 
-        router = active[router_index]
-        speakers = [p for p in active if p.id != router.id]
+        # スタンスプロンプト解決
+        router_stance = resolve_stance_prompt("router", config)
+        speaker_stance = resolve_stance_prompt("speaker", config)
 
         # 参加者リスト（ルーターへのプロンプト用）
         participant_list = "\n".join(f"- {p.name}（{p.role}）" for p in speakers)
@@ -91,7 +98,7 @@ class DynamicRoutingStrategy(ThemeStrategy):
             # ------------------------------------------------------------------
             # ルーターが次の発言者を JSON で指名
             # ------------------------------------------------------------------
-            router_input = build_agent_input(session, router)
+            router_input = build_agent_input(session, router, stance_prompt=router_stance)
             router_input.query += ROUTER_PROMPT_TEMPLATE.format(
                 participant_list=participant_list,
                 end_condition_section=end_condition_section,
@@ -126,7 +133,7 @@ class DynamicRoutingStrategy(ThemeStrategy):
             # ------------------------------------------------------------------
             # 指名されたペルソナが発言
             # ------------------------------------------------------------------
-            speaker_input = build_agent_input(session, next_persona)
+            speaker_input = build_agent_input(session, next_persona, stance_prompt=speaker_stance)
             speaker_message = ctx.agent_executor(speaker_input)
 
             session.history.append(MessageHistory(

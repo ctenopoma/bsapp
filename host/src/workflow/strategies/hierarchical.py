@@ -9,33 +9,30 @@ hierarchical.py
 動作フロー:
   1. マネージャーが「計画・指示」を発言
   2. ワーカー全員（マネージャー以外）が順番に「実行」
-  3. マネージャーが全ワーカーの発言を評価
-     → 合格: 終了
-     → 不合格: フィードバックを履歴に追加し 2 に戻る（最大 max_revision_loops 回）
-  4. 要約生成
+  3. マネージャーが全ワーカーの発言を評価（JSON: pass/complete/feedback）
+     → complete=true: プロセス完了 → 早期終了
+     → pass=true: 合格 → 終了
+     → pass=false: フィードバックを履歴に追加し 2 に戻る
+  4. リトライ上限到達時は強制終了
+  5. 要約生成
 
 設定項目 (ThemeConfig.strategy_config):
   - manager_index      : マネージャー役のインデックス（デフォルト: 0）
   - max_revision_loops : 最大修正ループ数（デフォルト: 3）
   - pass_condition     : 合格判定の追加指示（省略可）
+  - role_map           : ペルソナIDと役割のマッピング（省略可）
+                         例: {"persona_id_1": "manager", "persona_id_2": "worker", ...}
+  - max_retry_per_phase: リトライ上限（デフォルト: 3）
 """
 
 import uuid
 
 from ...models import MessageHistory
 from ..input_builder import build_agent_input
-from ..json_utils import parse_json_response
 from ..prompt_builder import EVALUATION_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_role_group, resolve_stance_prompt
+from ..termination import TerminationChecker
 from .base import ThemeStrategy, StrategyContext, get_ordered_personas
-
-
-def _parse_evaluation(text: str) -> tuple[bool, str]:
-    """LLM応答からJSON評価結果をパースする。
-
-    パース失敗時は (True, "") を返してループを止める。
-    """
-    data = parse_json_response(text, fallback={})
-    return bool(data.get("pass", True)), str(data.get("feedback", ""))
 
 
 class HierarchicalStrategy(ThemeStrategy):
@@ -58,17 +55,24 @@ class HierarchicalStrategy(ThemeStrategy):
         if session.current_theme_config and session.current_theme_config.strategy_config:
             config = session.current_theme_config.strategy_config
 
-        manager_index = min(int(config.get("manager_index", 0)), len(active) - 1)
+        # 役割解決: role_map → index → デフォルト
+        manager = resolve_role("manager", active, config, "manager_index", default_index=0)
+        workers = resolve_role_group("worker", active, config, exclude_ids={manager.id})
+
         max_revision_loops = max(1, int(config.get("max_revision_loops", 3)))
         pass_condition = config.get("pass_condition", "")
 
-        manager = active[manager_index]
-        workers = [p for p in active if p.id != manager.id]
+        # スタンスプロンプト解決
+        manager_stance = resolve_stance_prompt("manager", config)
+        worker_stance = resolve_stance_prompt("worker", config)
+
+        # 終了制御
+        checker = TerminationChecker(config)
 
         # ------------------------------------------------------------------
         # Step 1: マネージャーが計画・指示を発言
         # ------------------------------------------------------------------
-        plan_input = build_agent_input(session, manager)
+        plan_input = build_agent_input(session, manager, stance_prompt=manager_stance)
         plan_input.query += "\n\n（あなたはマネージャーです。まずワーカーへの計画・指示を述べてください。）"
         plan_message = ctx.agent_executor(plan_input)
 
@@ -90,7 +94,7 @@ class HierarchicalStrategy(ThemeStrategy):
             # ワーカー全員が順番に発言
             worker_messages: list[MessageHistory] = []
             for worker in workers if workers else active:
-                worker_input = build_agent_input(session, worker)
+                worker_input = build_agent_input(session, worker, stance_prompt=worker_stance)
                 if loop_idx > 0:
                     worker_input.query += f"\n\n{round_label}マネージャーのフィードバックを踏まえて発言を修正してください。"
                 msg_text = ctx.agent_executor(worker_input)
@@ -113,14 +117,18 @@ class HierarchicalStrategy(ThemeStrategy):
             pass_condition_section = (
                 f"\n合格条件: {pass_condition}" if pass_condition else ""
             )
-            eval_input = build_agent_input(session, manager)
+            eval_input = build_agent_input(session, manager, stance_prompt=manager_stance)
             eval_input.query += EVALUATION_PROMPT_TEMPLATE.format(
                 worker_opinions=worker_opinions,
                 pass_condition_section=pass_condition_section,
             )
             eval_response = ctx.agent_executor(eval_input)
 
-            passed, feedback = _parse_evaluation(eval_response)
+            # JSON評価結果をパース（標準スキーマ）
+            eval_result = checker.parse_evaluation(eval_response)
+            passed = eval_result.get("pass", True)
+            complete = checker.is_complete(eval_result)
+            feedback = eval_result.get("feedback", "")
 
             eval_label = "合格" if passed else f"不合格（フィードバック: {feedback}）"
             session.history.append(MessageHistory(
@@ -132,7 +140,21 @@ class HierarchicalStrategy(ThemeStrategy):
             ))
             session.turn_count_in_theme += 1
 
-            if passed:
+            # 完了判定
+            if complete or passed:
+                break
+
+            # 不合格 → リトライ上限チェック
+            checker.increment_retry()
+            if checker.should_force_proceed():
+                session.history.append(MessageHistory(
+                    id=uuid.uuid4().hex,
+                    theme=session.current_theme,
+                    agent_name="システム",
+                    content=f"リトライ上限（{checker.max_retry}回）に達したため、現状の成果で打ち切ります。",
+                    turn_order=session.turn_count_in_theme,
+                ))
+                session.turn_count_in_theme += 1
                 break
 
             # 不合格の場合、フィードバックを履歴に追加してループ継続

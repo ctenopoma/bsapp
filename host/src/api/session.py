@@ -1,6 +1,8 @@
 import uuid
+import logging
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Dict, Any
+from pydantic import BaseModel
+from typing import Dict, Any, List
 
 from src.models import (
     SessionStartRequest,
@@ -13,9 +15,20 @@ from src.models import (
     FullSessionStatusResponse
 )
 from src.session_manager import session_manager
-from src.agent_runner import agent_runner, job_statuses
+from src.agent_runner import agent_runner, create_llm, job_statuses
+
+logger = logging.getLogger("bsapp.session")
 
 router = APIRouter()
+
+
+class GenerateTitleRequest(BaseModel):
+    themes: List[str]
+    common_theme: str = ""
+
+
+class GenerateTitleResponse(BaseModel):
+    title: str
 
 
 @router.post("/start", response_model=SessionStartResponse)
@@ -82,3 +95,34 @@ def get_full_session_status(session_id: str, job_id: str):
     if not status_info:
         raise HTTPException(status_code=404, detail="Job not found")
     return FullSessionStatusResponse(**status_info)
+
+
+@router.post("/generate-title", response_model=GenerateTitleResponse)
+def generate_title(req: GenerateTitleRequest):
+    """テーマ一覧からLLMに議論タイトルを生成させる。"""
+    themes_text = "\n".join(f"- {t}" for t in req.themes)
+    common = f"\n共通テーマ: {req.common_theme}" if req.common_theme else ""
+
+    prompt = (
+        "以下は議論セッションで扱うテーマの一覧です。\n"
+        f"{themes_text}{common}\n\n"
+        "この議論セッション全体を表す簡潔なタイトルを1つだけ生成してください。\n"
+        "条件:\n"
+        "- 20文字以内の日本語\n"
+        "- テーマの本質を捉えた分かりやすい表現\n"
+        "- タイトルのみを出力し、他の説明は不要"
+    )
+
+    try:
+        llm = create_llm()
+        result = llm.invoke(prompt)
+        title = result.content.strip().strip("「」『』\"'")
+        # 万が一長すぎる場合は切り詰め
+        if len(title) > 50:
+            title = title[:47] + "..."
+        return GenerateTitleResponse(title=title)
+    except Exception as e:
+        logger.warning(f"タイトル生成に失敗、フォールバック使用: {e}")
+        # フォールバック: 最初のテーマの先頭30文字
+        fallback = req.themes[0][:30] + ("..." if len(req.themes[0]) > 30 else "") if req.themes else "Untitled"
+        return GenerateTitleResponse(title=fallback)

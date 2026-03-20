@@ -26,6 +26,7 @@ from ...models import MessageHistory
 from ..input_builder import build_agent_input
 from ..json_utils import parse_json_response
 from ..prompt_builder import GATEKEEPER_PROMPT_TEMPLATE
+from ..role_resolver import resolve_role, resolve_stance_prompt, build_flow_role_config
 from .base import ProjectFlow, FlowContext
 
 
@@ -43,17 +44,27 @@ class StageGateFlow(ProjectFlow):
         session = ctx.session
         config = session.flow_config
 
-        gatekeeper_index = min(int(config.get("gatekeeper_index", 0)), len(session.personas) - 1)
         pass_condition = config.get("pass_condition", "")
         max_revisions = max(0, int(config.get("max_revisions", 2)))
 
-        gatekeeper = session.personas[gatekeeper_index]
         pass_condition_section = (
             f"通過条件: {pass_condition}\n\n" if pass_condition else ""
         )
 
         while not session.all_themes_done:
             current_theme = session.current_theme
+
+            # テーマごとの flow_role_map で役割解決
+            theme_cfg = session.current_theme_config
+            frm = build_flow_role_config(
+                theme_cfg.flow_role_map if theme_cfg else None, config)
+            frm_with_slots = {**frm, **{k: v for k, v in config.items() if k == "slot_prompts"}}
+
+            active = session.active_personas or session.personas
+            gatekeeper = resolve_role("gatekeeper", active, frm, "gatekeeper_index",
+                                      default_index=int(config.get("gatekeeper_index", 0)))
+            gatekeeper_stance = resolve_stance_prompt("gatekeeper", frm_with_slots)
+
             last_summary = ""
 
             for revision in range(max_revisions + 1):
@@ -61,7 +72,7 @@ class StageGateFlow(ProjectFlow):
                 last_summary = ctx.run_one_theme_fn(session)
 
                 # ゲートキーパーが評価
-                gate_input = build_agent_input(session, gatekeeper)
+                gate_input = build_agent_input(session, gatekeeper, stance_prompt=gatekeeper_stance)
                 gate_input.query = GATEKEEPER_PROMPT_TEMPLATE.format(
                     theme=current_theme,
                     summary=last_summary,
