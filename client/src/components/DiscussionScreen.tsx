@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
-import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus, apiEndSession } from '../lib/api';
-import { Loader2, Play, Square, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
+import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus } from '../lib/api';
+import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -35,7 +35,6 @@ function agentMessages(group: ThemeGroup) {
 
 export default function DiscussionScreen() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
 
@@ -232,21 +231,6 @@ export default function DiscussionScreen() {
     triggerCopied('summaries');
   };
 
-  const handleEndSession = async () => {
-    if (!sessionId) return;
-    abortRef.current = true;
-    setStatus('done');
-    try {
-      await apiEndSession(sessionId);
-      alert('Session Ended and memory cleared on host.');
-      navigate('/');
-    } catch (e) {
-      console.error(e);
-      alert('Failed to end session on host. It might already be cleared.');
-      navigate('/');
-    }
-  };
-
   const hasSummaries = messages.some(m => m.agent_name === 'Summary');
   const groups = buildThemeGroups(messages);
 
@@ -310,13 +294,6 @@ export default function DiscussionScreen() {
             </div>
           )}
 
-          <button
-            onClick={handleEndSession}
-            className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 px-5 py-2.5 rounded-lg font-semibold transition-colors border border-red-200"
-          >
-            <Square size={18} fill="currentColor" />
-            End Session
-          </button>
         </div>
       </div>
 

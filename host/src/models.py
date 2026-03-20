@@ -135,9 +135,6 @@ class FullSessionStatusResponse(BaseModel):
     error_msg: Optional[str] = None
 
 
-class SessionEndResponse(BaseModel):
-    status: Literal["success"]
-
 
 # -------------------------------------------------------------------
 # アプリ設定 (公開API経由で取得・変更できる設定のみ。LLM接続情報は含まない)
@@ -228,3 +225,29 @@ class RagAddResponse(BaseModel):
 class RagStatusResponse(BaseModel):
     status: Literal["processing", "completed", "error"]
     error_msg: Optional[str] = None
+
+
+# -------------------------------------------------------------------
+# ヘルパーエージェント API (ペルソナ・タスク入力支援)
+# -------------------------------------------------------------------
+class HelperMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class FieldSuggestion(BaseModel):
+    field: str    # フィールド名 (例: "name", "role", "pre_info", "description")
+    value: str    # 提案値
+    label: str    # 表示ラベル (例: "名前", "ロール")
+
+
+class HelperAskRequest(BaseModel):
+    context: Literal["persona", "task", "setup"]
+    question: str
+    history: List[HelperMessage] = Field(default_factory=list)
+    current_input: Optional[dict] = None  # 現在の入力値 {"name": "...", "role": "..."}
+
+
+class HelperAskResponse(BaseModel):
+    answer: str
+    suggestions: Optional[List[FieldSuggestion]] = None

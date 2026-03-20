@@ -627,10 +627,6 @@ export interface SummarizeStatusResponse {
   error_msg?: string;
 }
 
-export interface SessionEndResponse {
-  status: 'success';
-}
-
 // App Settings (LLM接続情報はサーバー側のみで管理・非公開)
 export interface AppSettings {
   turns_per_theme: number;
@@ -712,4 +708,28 @@ export interface PatentSummaryRequest {
 
 export interface PatentSummaryResponse {
   summary: string;
+}
+
+// ヘルパーエージェント API (ペルソナ・タスク入力支援)
+export interface HelperMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface FieldSuggestion {
+  field: string;   // "name" | "role" | "pre_info" | "description"
+  value: string;
+  label: string;   // 表示用ラベル ("名前", "ロール" 等)
+}
+
+export interface HelperAskRequest {
+  context: 'persona' | 'task' | 'setup';
+  question: string;
+  history: HelperMessage[];
+  current_input?: Record<string, string>;
+}
+
+export interface HelperAskResponse {
+  answer: string;
+  suggestions?: FieldSuggestion[];
 }

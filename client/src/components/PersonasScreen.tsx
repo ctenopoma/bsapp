@@ -4,6 +4,8 @@ import { Persona, AvailableRagType, RagConfig } from '../types/api';
 import { getPersonas, addPersona, updatePersona, deletePersona, getPersonaPresets, createPersonaPreset, updatePersonaPreset, deletePersonaPreset, PersonaPresetData } from '../lib/server-db';
 import { apiGetRagTypes, apiGetSettings, apiSaveSettings } from '../lib/api';
 import { Plus, Trash2, Edit2, Save, X, FileText, FolderOpen } from 'lucide-react';
+import HelperChatWidget from './HelperChatWidget';
+import type { FieldSuggestion } from '../types/api';
 
 const SELECT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white";
 const INPUT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
@@ -242,6 +244,33 @@ export default function PersonasScreen() {
     await deletePersonaPreset(id);
     setPersonaPresets(prev => prev.filter(p => p.id !== id));
   };
+
+  const handleHelperApply = (suggestions: FieldSuggestion[]) => {
+    if (editingId) {
+      // 編集中のペルソナに反映
+      const updates: Partial<Persona> = { ...editForm };
+      suggestions.forEach(s => {
+        if (s.field === 'name') updates.name = s.value;
+        else if (s.field === 'role') updates.role = s.value;
+        else if (s.field === 'pre_info') updates.pre_info = s.value;
+      });
+      setEditForm(updates);
+    } else {
+      // 新規作成フォームに反映 (フォームが閉じてたら開く)
+      if (!isCreating) setIsCreating(true);
+      const updates: Partial<Persona> = { ...createForm };
+      suggestions.forEach(s => {
+        if (s.field === 'name') updates.name = s.value;
+        else if (s.field === 'role') updates.role = s.value;
+        else if (s.field === 'pre_info') updates.pre_info = s.value;
+      });
+      setCreateForm(updates);
+    }
+  };
+
+  const helperCurrentInput = editingId
+    ? { name: editForm.name ?? '', role: editForm.role ?? '', pre_info: editForm.pre_info ?? '' }
+    : { name: createForm.name ?? '', role: createForm.role ?? '', pre_info: createForm.pre_info ?? '' };
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -518,6 +547,12 @@ export default function PersonasScreen() {
           </div>
         )}
       </div>
+
+      <HelperChatWidget
+        context="persona"
+        currentInput={helperCurrentInput}
+        onApply={handleHelperApply}
+      />
     </div>
   );
 }

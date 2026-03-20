@@ -6,7 +6,7 @@ from typing import Dict, Any
 from src.models import (
     SessionStartRequest, SessionStartResponse, 
     TurnStartResponse, TurnStatusResponse,
-    SummarizeStartResponse, SummarizeStatusResponse, SessionEndResponse,
+    SummarizeStartResponse, SummarizeStatusResponse,
     RagInitRequest, RagInitResponse, 
     RagAddRequest, RagAddResponse, RagStatusResponse
 )
@@ -62,13 +62,6 @@ def get_summarize_status(session_id: str, job_id: str):
     if not status_data:
         raise HTTPException(status_code=404, detail="Job not found")
     return SummarizeStatusResponse(**status_data)
-
-@app.post("/api/session/{session_id}/end", response_model=SessionEndResponse)
-def end_session(session_id: str):
-    success = session_manager.end_session(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return SessionEndResponse(status="success")
 
 
 # --- RAG Management API ---

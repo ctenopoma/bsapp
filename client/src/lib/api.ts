@@ -5,7 +5,6 @@ import {
   TurnStatusResponse,
   SummarizeStartResponse,
   SummarizeStatusResponse,
-  SessionEndResponse,
   AppSettings,
   HealthResponse,
   UpdateInfoResponse,
@@ -19,6 +18,8 @@ import {
   PatentAnalyzeResponse,
   PatentSummaryRequest,
   PatentSummaryResponse,
+  HelperAskRequest,
+  HelperAskResponse,
 } from '../types/api';
 
 // Use native fetch (works in both Tauri webview and plain browser)
@@ -118,10 +119,6 @@ export function apiGetSummarizeStatus(sessionId: string, jobId: string): Promise
   return request(`/api/session/${sessionId}/summarize/status/${jobId}`);
 }
 
-export function apiEndSession(sessionId: string): Promise<SessionEndResponse> {
-  return request(`/api/session/${sessionId}/end`, { method: 'POST' });
-}
-
 export function apiGetSettings(): Promise<AppSettings> {
   return request('/api/settings/');
 }
@@ -170,4 +167,9 @@ export function apiPatentAnalyze(req: PatentAnalyzeRequest): Promise<PatentAnaly
 
 export function apiPatentSummary(req: PatentSummaryRequest): Promise<PatentSummaryResponse> {
   return request('/api/patent/summary', { method: 'POST', body: JSON.stringify(req) });
+}
+
+// ヘルパーエージェント API
+export function apiHelperAsk(req: HelperAskRequest): Promise<HelperAskResponse> {
+  return request('/api/helper/ask', { method: 'POST', body: JSON.stringify(req) });
 }

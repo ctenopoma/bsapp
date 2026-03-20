@@ -3,6 +3,8 @@ import { generateUUID } from '../lib/uuid';
 import { TaskModel } from '../types/api';
 import { getTasks, addTask, updateTask, deleteTask, getTaskPresets, createTaskPreset, updateTaskPreset, deleteTaskPreset, TaskPresetData } from '../lib/server-db';
 import { Plus, Trash2, Edit2, Save, X, FolderOpen } from 'lucide-react';
+import HelperChatWidget from './HelperChatWidget';
+import type { FieldSuggestion } from '../types/api';
 
 export default function TasksScreen() {
   const [tasks, setTasks] = useState<TaskModel[]>([]);
@@ -99,6 +101,27 @@ export default function TasksScreen() {
     await deleteTaskPreset(id);
     setTaskPresets(prev => prev.filter(p => p.id !== id));
   };
+
+  const handleHelperApply = (suggestions: FieldSuggestion[]) => {
+    if (editingId) {
+      const updates: Partial<TaskModel> = { ...editForm };
+      suggestions.forEach(s => {
+        if (s.field === 'description') updates.description = s.value;
+      });
+      setEditForm(updates);
+    } else {
+      if (!isCreating) setIsCreating(true);
+      const updates: Partial<TaskModel> = { ...createForm };
+      suggestions.forEach(s => {
+        if (s.field === 'description') updates.description = s.value;
+      });
+      setCreateForm(updates);
+    }
+  };
+
+  const helperCurrentInput = editingId
+    ? { description: editForm.description ?? '' }
+    : { description: createForm.description ?? '' };
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -233,6 +256,12 @@ export default function TasksScreen() {
           </div>
         )}
       </div>
+
+      <HelperChatWidget
+        context="task"
+        currentInput={helperCurrentInput}
+        onApply={handleHelperApply}
+      />
     </div>
   );
 }

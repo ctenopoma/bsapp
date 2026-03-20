@@ -11,6 +11,8 @@ import {
 } from '../lib/server-db';
 import { apiStartSession, apiGetSettings, apiGenerateTitle } from '../lib/api';
 import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
+import HelperChatWidget from './HelperChatWidget';
+import type { FieldSuggestion } from '../types/api';
 
 interface ThemeEntry {
   localId: string;
@@ -205,6 +207,33 @@ export default function SetupScreen() {
   const isActive = (entry: ThemeEntry, personaId: string) =>
     entry.personaIds.size === 0 || entry.personaIds.has(personaId);
 
+  /** ストラテジーで割り当てられた役割名を返す (未割当なら空文字) */
+  const getStrategyRole = (entry: ThemeEntry, personaId: string): string => {
+    const roleMap: Record<string, string> = entry.strategyConfig?.role_map ?? {};
+    return roleMap[personaId] ?? '';
+  };
+
+  /** フローで割り当てられた役割名一覧を返す */
+  const getFlowRoles = (entry: ThemeEntry, personaId: string): string[] => {
+    const roles: string[] = [];
+    for (const [roleName, ids] of Object.entries(entry.flowRoleMap)) {
+      if (Array.isArray(ids) ? ids.includes(personaId) : ids === personaId) {
+        roles.push(roleName);
+      }
+    }
+    return roles;
+  };
+
+  /** ペルソナ名に他方の役割をアノテーションする */
+  const annotateWithStrategy = (entry: ThemeEntry, p: { id: string; name: string }): string => {
+    const sr = getStrategyRole(entry, p.id);
+    return sr ? `${p.name} [${sr}]` : p.name;
+  };
+  const annotateWithFlow = (entry: ThemeEntry, p: { id: string; name: string }): string => {
+    const fr = getFlowRoles(entry, p.id);
+    return fr.length > 0 ? `${p.name} [${fr.join(', ')}]` : p.name;
+  };
+
   const loadPersonaPreset = (presetId: string) => {
     setSelectedPersonaPresetId(presetId);
     if (!presetId) {
@@ -359,6 +388,39 @@ export default function SetupScreen() {
       setError(e.message || 'Failed to start session');
       setIsStarting(false);
     }
+  };
+
+  const handleHelperApply = (suggestions: FieldSuggestion[]) => {
+    suggestions.forEach(s => {
+      if (s.field === 'common_theme') {
+        setCommonTheme(s.value);
+        saveSessionConfig('common_theme', s.value).catch(console.error);
+      } else if (s.field === 'pre_info') {
+        setPreInfo(s.value);
+        saveSessionConfig('pre_info', s.value).catch(console.error);
+      } else if (s.field === 'theme') {
+        // テーマ提案: 最初の空テーマに入れるか、新しいテーマを追加
+        setThemeEntries(prev => {
+          const emptyIdx = prev.findIndex(e => !e.text.trim());
+          if (emptyIdx >= 0) {
+            const next = prev.map((e, i) => i === emptyIdx ? { ...e, text: s.value } : e);
+            saveThemeEntries(next.map(uiToDb)).catch(console.error);
+            return next;
+          }
+          const entry = newEntry();
+          entry.text = s.value;
+          const next = [...prev, entry];
+          saveThemeEntries(next.map(uiToDb)).catch(console.error);
+          return next;
+        });
+      }
+    });
+  };
+
+  const helperCurrentInput: Record<string, string> = {
+    common_theme: commonTheme,
+    pre_info: preInfo,
+    themes: themeEntries.map(e => e.text).filter(Boolean).join(' / '),
   };
 
   return (
@@ -708,7 +770,7 @@ export default function SetupScreen() {
                                       : 'bg-gray-100 border-gray-200 text-gray-400'
                                   }`}
                                 >
-                                  {p.name}
+                                  {annotateWithStrategy(entry, p)}
                                 </button>
                               );
                             })
@@ -928,7 +990,7 @@ export default function SetupScreen() {
                                                   : '（共通設定を使用）'}
                                               </option>
                                               {personas.filter(p => activePersonaIds.has(p.id)).map(p => (
-                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                                <option key={p.id} value={p.id}>{annotateWithStrategy(entry, p)}</option>
                                               ))}
                                             </select>
                                           </div>
@@ -1023,9 +1085,11 @@ export default function SetupScreen() {
                                           if (themePersonas.length === 0) return null;
                                           return (
                                             <div className="w-full mt-1 space-y-1">
-                                              {themePersonas.map(p => (
+                                              {themePersonas.map(p => {
+                                                const flowLabel = annotateWithFlow(entry, p);
+                                                return (
                                                 <div key={p.id} className="flex items-center gap-2">
-                                                  <span className="text-xs text-gray-600 w-32 truncate" title={p.name}>{p.name}</span>
+                                                  <span className="text-xs text-gray-600 w-32 truncate" title={flowLabel}>{flowLabel}</span>
                                                   <select
                                                     value={roleMap[p.id] ?? ''}
                                                     onChange={ev => {
@@ -1047,7 +1111,8 @@ export default function SetupScreen() {
                                                     {availableRoles.map(r => (<option key={r} value={r}>{r}</option>))}
                                                   </select>
                                                 </div>
-                                              ))}
+                                                );
+                                              })}
                                             </div>
                                           );
                                         })()}
@@ -1285,6 +1350,12 @@ export default function SetupScreen() {
           {isStarting ? 'Starting...' : 'Start Discussion'}
         </button>
       </div>
+
+      <HelperChatWidget
+        context="setup"
+        currentInput={helperCurrentInput}
+        onApply={handleHelperApply}
+      />
     </div>
   );
 }

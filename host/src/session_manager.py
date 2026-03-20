@@ -78,18 +78,12 @@ class SessionManager:
         self.active_sessions: Dict[str, SessionMemory] = {}
 
     def start_session(self, request: SessionStartRequest) -> str:
-        session_id = f"sess-{uuid.uuid4().hex}"
+        session_id = uuid.uuid4().hex
         self.active_sessions[session_id] = SessionMemory(session_id, request)
         return session_id
 
     def get_session(self, session_id: str) -> SessionMemory | None:
         return self.active_sessions.get(session_id)
-
-    def end_session(self, session_id: str) -> bool:
-        if session_id in self.active_sessions:
-            del self.active_sessions[session_id]
-            return True
-        return False
 
 
 # Global instance

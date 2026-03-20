@@ -11,7 +11,6 @@ from src.models import (
     TurnStatusResponse,
     SummarizeStartResponse,
     SummarizeStatusResponse,
-    SessionEndResponse,
     FullSessionStatusResponse
 )
 from src.session_manager import session_manager
@@ -72,13 +71,6 @@ def get_summarize_status(session_id: str, job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     return SummarizeStatusResponse(**status_info)
 
-
-@router.post("/{session_id}/end", response_model=SessionEndResponse)
-def end_session(session_id: str):
-    success = session_manager.end_session(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return SessionEndResponse(status="success")
 
 @router.post("/{session_id}/full/start", response_model=TurnStartResponse)
 def start_full_session(session_id: str, background_tasks: BackgroundTasks):

@@ -107,7 +107,7 @@ def _log_startup_proxy_status() -> None:
 _setup_no_proxy()
 _log_startup_proxy_status()
 
-from src.api import session, rag, settings, patent, update, auth, admin, user_data
+from src.api import session, rag, settings, patent, update, auth, admin, user_data, helper
 from src.database import init_db
 
 app = FastAPI(title="BSapp Backend", version="0.1.0")
@@ -173,6 +173,7 @@ app.include_router(update.router, prefix="/api/update", tags=["Update"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(user_data.router, prefix="/api/data", tags=["UserData"])
+app.include_router(helper.router, prefix="/api/helper", tags=["Helper"])
 
 @app.get("/")
 def read_root():
