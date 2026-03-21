@@ -15,7 +15,7 @@ from typing import Optional
 
 import httpx
 from jose import jwt, JWTError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -30,6 +30,7 @@ AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID", "")
 DEV_AUTH_BYPASS = os.environ.get("DEV_AUTH_BYPASS", "false").lower() == "true"
 DEV_USER_EMAIL = os.environ.get("DEV_USER_EMAIL", "dev@example.com")
 DEV_USER_NAME = os.environ.get("DEV_USER_NAME", "Dev User")
+DEV_USER_RETENTION_DAYS = int(os.environ.get("DEV_USER_RETENTION_DAYS", "30"))
 
 _jwks_cache: dict | None = None
 
@@ -82,9 +83,11 @@ async def _get_or_create_user(
     email: str,
     display_name: str,
     azure_oid: Optional[str],
+    force_approved: bool = False,
 ) -> User:
     """Find existing user by email or OID, or create a new pending user.
     The very first user ever gets auto-approved + admin rights.
+    If force_approved=True, the user is always approved + admin (used in DEV_AUTH_BYPASS).
     """
     # Try to find by azure_oid first, then by email
     user: User | None = None
@@ -103,18 +106,21 @@ async def _get_or_create_user(
         total_users = count_result.scalar_one()
         is_first = total_users == 0
 
+        approved = force_approved or is_first
         user = User(
             id=str(uuid.uuid4()),
             email=email,
             display_name=display_name,
             azure_oid=azure_oid,
-            is_approved=is_first,
-            is_admin=is_first,
+            is_approved=approved,
+            is_admin=approved,
             created_at=now,
             last_login_at=now,
         )
         db.add(user)
-        if is_first:
+        if force_approved:
+            logger.info(f"Dev user {email} created with admin + auto-approved")
+        elif is_first:
             logger.info(f"First user {email} created with admin + auto-approved")
         else:
             logger.info(f"New user {email} created (pending approval)")
@@ -124,27 +130,64 @@ async def _get_or_create_user(
         if azure_oid:
             user.azure_oid = azure_oid
         user.last_login_at = now
+        if force_approved and (not user.is_approved or not user.is_admin):
+            user.is_approved = True
+            user.is_admin = True
+            logger.info(f"Dev user {email} upgraded to approved + admin")
 
     await db.commit()
     await db.refresh(user)
     return user
 
 
+async def cleanup_stale_dev_users(db: AsyncSession) -> int:
+    """DEV_USER_RETENTION_DAYS 日以上アクセスのない @dev.local ユーザーを削除する。
+    User の cascade 設定により関連データも全て削除される。
+    Returns: 削除したユーザー数
+    """
+    from datetime import timedelta
+    from sqlalchemy import delete
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DEV_USER_RETENTION_DAYS)
+    result = await db.execute(
+        select(User).where(
+            User.email.like("%@dev.local"),
+            User.last_login_at < cutoff,
+        )
+    )
+    stale_users = result.scalars().all()
+    for user in stale_users:
+        await db.delete(user)
+    await db.commit()
+    if stale_users:
+        logger.info(
+            f"Cleaned up {len(stale_users)} stale dev user(s) "
+            f"(no access for {DEV_USER_RETENTION_DAYS}+ days)"
+        )
+    return len(stale_users)
+
+
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """FastAPI dependency: returns the authenticated User row.
 
-    In DEV_AUTH_BYPASS mode the token is ignored and a fixed dev user is used.
+    In DEV_AUTH_BYPASS mode the token is ignored and a per-browser dev user is used.
+    The browser sends a persistent session ID via X-Dev-Session-Id header;
+    different browsers/machines get different user records.
     Otherwise validates the Azure AD Bearer JWT.
     """
     if DEV_AUTH_BYPASS:
+        session_id = request.headers.get("x-dev-session-id", "default")
+        short_id = session_id[:8]
         user = await _get_or_create_user(
             db,
-            email=DEV_USER_EMAIL,
-            display_name=DEV_USER_NAME,
+            email=f"dev_{session_id}@dev.local",
+            display_name=f"Dev User ({short_id})",
             azure_oid=None,
+            force_approved=True,
         )
         return user
 

@@ -669,9 +669,25 @@ export interface RagInitResponse {
   error_msg?: string;
 }
 
+export interface ChunkStrategy {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ChunkStrategiesResponse {
+  strategies: ChunkStrategy[];
+}
+
 export interface RagAddRequest {
   tag: string;
   text: string;
+  strategy?: string;
+  chunk_size?: number;
+  overlap?: number;
+  window_size?: number;
+  overlap_sentences?: number;
+  breakpoint_percentile?: number;
 }
 
 export interface RagAddResponse {
@@ -681,6 +697,38 @@ export interface RagAddResponse {
 export interface RagStatusResponse {
   status: 'processing' | 'completed' | 'error';
   error_msg?: string;
+}
+
+export interface RagCollectionInfo {
+  tag: string;
+  count: number;
+}
+
+export interface RagCollectionsResponse {
+  collections: RagCollectionInfo[];
+}
+
+export interface RagChunk {
+  id: string;
+  text: string;
+}
+
+export interface RagChunksResponse {
+  chunks: RagChunk[];
+  total: number;
+  error?: string;
+}
+
+export interface RagSearchHit {
+  id: string;
+  text: string;
+  score: number;
+}
+
+export interface RagSearchResponse {
+  results: RagSearchHit[];
+  context: string;
+  error?: string;
 }
 
 // 特許調査 API

@@ -14,6 +14,10 @@ import {
   RagAddResponse,
   RagStatusResponse,
   RagTypesResponse,
+  RagCollectionsResponse,
+  RagChunksResponse,
+  RagSearchResponse,
+  ChunkStrategiesResponse,
   PatentAnalyzeRequest,
   PatentAnalyzeResponse,
   PatentSummaryRequest,
@@ -34,6 +38,17 @@ const IS_DEV = import.meta.env.DEV;
 let _authToken: string | undefined;
 export function setAuthToken(token: string | undefined) {
   _authToken = token;
+}
+
+// Dev session ID: persists in localStorage so the same browser always maps to the same dev user
+function getDevSessionId(): string {
+  const KEY = 'dev_session_id';
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(KEY, id);
+  }
+  return id;
 }
 
 function vlog(message: string, ...args: unknown[]): void {
@@ -59,6 +74,7 @@ export async function request<T>(path: string, options?: any): Promise<T> {
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (_authToken) headers['Authorization'] = `Bearer ${_authToken}`;
+  headers['X-Dev-Session-Id'] = getDevSessionId();
 
   const startMs = Date.now();
   try {
@@ -148,6 +164,26 @@ export const apiGetRagStatus = apiRagStatus;
 
 export function apiGetRagTypes(): Promise<RagTypesResponse> {
   return request('/api/rag/types');
+}
+
+export function apiGetRagCollections(): Promise<RagCollectionsResponse> {
+  return request('/api/rag/collections');
+}
+
+export function apiGetChunkStrategies(): Promise<ChunkStrategiesResponse> {
+  return request('/api/rag/chunk_strategies');
+}
+
+export function apiGetRagChunks(tag: string, limit = 200): Promise<RagChunksResponse> {
+  return request(`/api/rag/chunks/${encodeURIComponent(tag)}?limit=${limit}`);
+}
+
+export function apiDeleteRagChunk(tag: string, chunkId: string): Promise<{ status: string; error_msg?: string }> {
+  return request(`/api/rag/chunks/${encodeURIComponent(tag)}/${encodeURIComponent(chunkId)}`, { method: 'DELETE' });
+}
+
+export function apiSearchRag(tag: string, query: string, limit: number = 3): Promise<RagSearchResponse> {
+  return request(`/api/rag/search?tag=${encodeURIComponent(tag)}&query=${encodeURIComponent(query)}&limit=${limit}`);
 }
 
 // アップデート確認 API

@@ -16,7 +16,8 @@
       "Read(//c/Users/naoki/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/**)",
       "Read(//c/Users/naoki/.cargo/**)",
       "Read(//c/Users/naoki/**)",
-      "Bash(CARGO=\"C:/Users/naoki/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/cargo.exe\" npm run tauri dev)"
+      "Bash(CARGO=\"C:/Users/naoki/.rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/cargo.exe\" npm run tauri dev)",
+      "Bash(xargs ls:*)"
     ]
   }
 }

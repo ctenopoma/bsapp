@@ -108,7 +108,8 @@ _setup_no_proxy()
 _log_startup_proxy_status()
 
 from src.api import session, rag, settings, patent, update, auth, admin, user_data, helper
-from src.database import init_db
+from src.auth import DEV_AUTH_BYPASS, cleanup_stale_dev_users
+from src.database import init_db, get_db
 
 app = FastAPI(title="BSapp Backend", version="0.1.0")
 
@@ -147,6 +148,10 @@ else:
 async def on_startup():
     await init_db()
     logger.info("PostgreSQL tables ready")
+    if DEV_AUTH_BYPASS:
+        async for db in get_db():
+            await cleanup_stale_dev_users(db)
+            break
 
 
 @app.middleware("http")

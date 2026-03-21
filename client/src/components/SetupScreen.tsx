@@ -10,7 +10,7 @@ import {
   getTaskPresets, TaskPresetData,
 } from '../lib/server-db';
 import { apiStartSession, apiGetSettings, apiGenerateTitle } from '../lib/api';
-import { Settings, Play, Plus, Trash2, Save, FolderOpen, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen, FilePlus, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
 import HelperChatWidget from './HelperChatWidget';
 import type { FieldSuggestion } from '../types/api';
 
@@ -315,6 +315,27 @@ export default function SetupScreen() {
     }
   };
 
+  // フォームをクリア（新規作成）
+  const handleClearForm = () => {
+    if (!confirm('現在の設定をクリアして新規作成しますか？')) return;
+    const empty = [newEntry()];
+    setThemeEntries(empty);
+    saveThemeEntries(empty.map(uiToDb)).catch(console.error);
+    setCommonTheme('');
+    saveSessionConfig('common_theme', '').catch(console.error);
+    setPreInfo('');
+    saveSessionConfig('pre_info', '').catch(console.error);
+    setProjectFlow('waterfall');
+    saveSessionConfig('project_flow', 'waterfall').catch(console.error);
+    setFlowConfig({});
+    saveSessionConfig('flow_config', '{}').catch(console.error);
+    setSelectedPresetId('');
+    setSelectedPersonaPresetId('');
+    setSelectedTaskPresetId('');
+    setActivePersonaIds(new Set(personas.map(p => p.id)));
+    setActiveTaskIds(new Set(allTasks.map(t => t.id)));
+  };
+
   // プリセット削除
   const handleDeletePreset = async () => {
     if (!selectedPresetId) return;
@@ -448,6 +469,13 @@ export default function SetupScreen() {
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+          <button
+            onClick={handleClearForm}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors"
+          >
+            <FilePlus size={14} />
+            新規作成
+          </button>
           <button
             onClick={() => {
               const current = presets.find(p => p.id === selectedPresetId);
