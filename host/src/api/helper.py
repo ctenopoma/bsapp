@@ -4,6 +4,7 @@
 
 import json
 import logging
+import re
 from fastapi import APIRouter
 
 from ..models import HelperAskRequest, HelperAskResponse, FieldSuggestion
@@ -45,7 +46,10 @@ async def helper_ask(req: HelperAskRequest) -> HelperAskResponse:
     suggestions = None
 
     try:
-        parsed = json.loads(raw)
+        # Markdownコードブロック (```json ... ``` 等) を除去してからパース
+        stripped = re.sub(r'^```(?:json)?\s*', '', raw.strip())
+        stripped = re.sub(r'\s*```$', '', stripped.strip())
+        parsed = json.loads(stripped)
         if isinstance(parsed, dict):
             answer = parsed.get("answer", raw)
             raw_suggestions = parsed.get("suggestions")
