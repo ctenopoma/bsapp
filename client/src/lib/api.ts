@@ -25,6 +25,7 @@ import {
   HelperAskRequest,
   HelperAskResponse,
 } from '../types/api';
+import { generateUUID } from './uuid';
 
 // Use native fetch (works in both Tauri webview and plain browser)
 const _fetch: typeof fetch = window.fetch.bind(window);
@@ -45,7 +46,7 @@ function getDevSessionId(): string {
   const KEY = 'dev_session_id';
   let id = localStorage.getItem(KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateUUID();
     localStorage.setItem(KEY, id);
   }
   return id;
