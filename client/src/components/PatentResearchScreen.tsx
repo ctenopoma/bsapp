@@ -16,7 +16,8 @@ import {
   PatentSessionData,
   PatentReportData,
 } from '../lib/server-db';
-import { AppSettings, PatentAnalyzeResponse } from '../types/api';
+import { AppSettings, PatentAnalyzeResponse, FieldSuggestion } from '../types/api';
+import HelperChatWidget from './HelperChatWidget';
 
 // -------------------------------------------------------------------
 // CSV パーサー (UTF-8 / Shift-JIS 対応、クォート内改行対応)
@@ -367,6 +368,17 @@ export default function PatentResearchScreen() {
   };
 
   // -------------------------------------------------------------------
+  // ヘルパー
+  // -------------------------------------------------------------------
+  const handleHelperApply = (suggestions: FieldSuggestion[]) => {
+    for (const s of suggestions) {
+      if (s.field === 'analyze_system_prompt') setAnalyzeSystemPrompt(s.value);
+      if (s.field === 'analyze_output_format') setAnalyzeOutputFormat(s.value);
+      if (s.field === 'summary_system_prompt') setSummarySystemPrompt(s.value);
+    }
+  };
+
+  // -------------------------------------------------------------------
   // 描画
   // -------------------------------------------------------------------
   return (
@@ -574,6 +586,16 @@ export default function PatentResearchScreen() {
           )}
         </div>
       )}
+
+      <HelperChatWidget
+        context="patent"
+        currentInput={{
+          analyze_system_prompt: analyzeSystemPrompt,
+          analyze_output_format: analyzeOutputFormat,
+          summary_system_prompt: summarySystemPrompt,
+        }}
+        onApply={handleHelperApply}
+      />
 
       {/* ======= 履歴タブ ======= */}
       {tab === 'history' && (

@@ -20,6 +20,8 @@
 - **セルフホスト型アップデート配布**: バックエンドサーバーがクライアントのインストーラーを配信。起動時に新バージョンが検出されると、アプリ内バナーでダウンロードを案内します。
 - **ネイティブ・パフォーマンス**: Tauri（Rust）をベースに構築しており、軽量かつ非常に高速なデスクトップUIを実現しました。
 - **LLM設定の秘匿化**: LLM接続情報（IP・ポート・モデル・APIキー）はサーバー側の `.env` のみで管理し、クライアントには公開されません。
+- **インアプリマニュアル**: サイドバーの「Manual」からアプリ内マニュアルを参照可能。マークダウンファイル（`client/src/manual/`）を編集するだけで更新できます。
+- **AIヘルパー機能**: New Session・Personas・Tasks 各ページに「ヘルパー」ボタンを搭載。入力項目の書き方をAIにチャットで相談し、提案をフォームに直接反映できます。ヘルパーの知識は `host/knowledge/` のMarkdownファイルで管理します。
 - **設定の永続化**: ターン数やプロンプトテンプレートなどのアプリ設定は `host/settings.json` に保存され、サーバー再起動後も維持されます。
 
 ---
@@ -68,7 +70,19 @@ bsapp/
     │   │   ├── TasksScreen.tsx         # タスク管理
     │   │   ├── RagScreen.tsx           # RAGデータベース管理
     │   │   ├── PatentResearchScreen.tsx # 特許調査
-    │   │   └── SettingsScreen.tsx      # アプリ設定
+    │   │   ├── SettingsScreen.tsx      # アプリ設定
+    │   │   ├── ManualScreen.tsx        # マニュアル表示
+    │   │   └── HelperChatWidget.tsx    # AIヘルパーウィジェット
+    │   ├── manual/                      # マニュアルページ（Markdown）
+    │   │   ├── 00_overview.md           # アプリ概要
+    │   │   ├── 01_setup.md              # New Session の使い方
+    │   │   ├── 02_personas.md           # Personas の使い方
+    │   │   ├── 03_tasks.md              # Tasks の使い方
+    │   │   ├── 04_discussion.md         # Discussion の使い方
+    │   │   ├── 05_rag.md                # Data Base (RAG) の使い方
+    │   │   ├── 06_patent.md             # Patent Research の使い方
+    │   │   ├── 07_settings.md           # Settings の使い方
+    │   │   └── 08_helper.md             # ヘルパー機能の使い方
     │   ├── lib/
     │   │   ├── api.ts        # バックエンドAPI呼び出し
     │   │   └── db.ts         # ローカルDB（セッション履歴）

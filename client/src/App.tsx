@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, ShieldCheck, LogOut } from "lucide-react";
+import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, ShieldCheck, LogOut, BookOpen } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { setAuthToken } from "./lib/api";
 import { getSessions, SessionData } from "./lib/server-db";
@@ -14,6 +14,7 @@ import DiscussionScreen from './components/DiscussionScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PatentResearchScreen from './components/PatentResearchScreen';
 import AdminScreen from './components/AdminScreen';
+import ManualScreen from './components/ManualScreen';
 
 // ─── Inner app (needs auth context) ─────────────────────────────────────────
 function AppShell() {
@@ -70,6 +71,7 @@ function AppShell() {
     { path: "/rag", label: "Data Base", icon: <Database size={20} /> },
     { path: "/patent", label: "Patent Research", icon: <FlaskConical size={20} /> },
     { path: "/settings", label: "Settings", icon: <SlidersHorizontal size={20} /> },
+    { path: "/manual", label: "Manual", icon: <BookOpen size={20} /> },
     ...(user.is_admin ? [{ path: "/admin", label: "Admin", icon: <ShieldCheck size={20} /> }] : []),
   ];
 
@@ -160,6 +162,7 @@ function AppShell() {
             <Route path="/rag" element={<RagScreen />} />
             <Route path="/patent" element={<PatentResearchScreen />} />
             <Route path="/settings" element={<SettingsScreen />} />
+            <Route path="/manual" element={<ManualScreen />} />
             {user.is_admin && <Route path="/admin" element={<AdminScreen />} />}
           </Routes>
         </div>

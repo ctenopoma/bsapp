@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiInitRag, apiAddRag, apiGetRagStatus, apiGetRagCollections, apiGetRagChunks, apiDeleteRagChunk, apiSearchRag, apiGetChunkStrategies } from '../lib/api';
-import { RagCollectionInfo, RagChunk, RagSearchHit, ChunkStrategy } from '../types/api';
+import { RagCollectionInfo, RagChunk, RagSearchHit, ChunkStrategy, FieldSuggestion } from '../types/api';
+import HelperChatWidget from './HelperChatWidget';
 import {
   Database, UploadCloud, RefreshCw, CheckCircle2, AlertCircle,
   Search, ChevronLeft, ChevronRight, Layers, FileText, Trash2, ChevronDown,
@@ -164,7 +165,15 @@ function ManageTab() {
   const currentStrategyMeta = strategies.find(s => s.id === strategy);
   const currentParams = STRATEGY_PARAMS[strategy] ?? [];
 
+  const handleHelperApply = (suggestions: FieldSuggestion[]) => {
+    for (const s of suggestions) {
+      if (s.field === 'tag') setTag(s.value);
+      if (s.field === 'strategy') setStrategy(s.value);
+    }
+  };
+
   return (
+    <>
     <div className="flex flex-col gap-5 flex-1">
       {/* Tag + Init */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
@@ -260,6 +269,12 @@ function ManageTab() {
         </div>
       </div>
     </div>
+    <HelperChatWidget
+      context="rag"
+      currentInput={{ tag, strategy }}
+      onApply={handleHelperApply}
+    />
+    </>
   );
 }
 
