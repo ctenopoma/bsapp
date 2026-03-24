@@ -771,7 +771,7 @@ export interface FieldSuggestion {
 }
 
 export interface HelperAskRequest {
-  context: 'persona' | 'task' | 'setup';
+  context: 'persona' | 'task' | 'setup' | 'rag' | 'patent';
   question: string;
   history: HelperMessage[];
   current_input?: Record<string, string>;

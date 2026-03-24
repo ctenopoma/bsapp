@@ -12,7 +12,7 @@ interface ChatEntry {
 
 interface Props {
   /** どの画面で使用されているか */
-  context: 'persona' | 'task' | 'setup';
+  context: 'persona' | 'task' | 'setup' | 'rag' | 'patent';
   /** 現在のフォーム入力値 */
   currentInput?: Record<string, string>;
   /** 提案値を反映するコールバック */
@@ -118,7 +118,12 @@ export default function HelperChatWidget({ context, currentInput, onApply }: Pro
     onApply([suggestion]);
   };
 
-  const contextLabel = context === 'persona' ? 'ペルソナ' : context === 'task' ? 'タスク' : 'セッション設定';
+  const contextLabel =
+    context === 'persona' ? 'ペルソナ' :
+    context === 'task' ? 'タスク' :
+    context === 'rag' ? 'RAG' :
+    context === 'patent' ? '特許調査' :
+    'セッション設定';
 
   // ---- 閉じた状態: フローティングボタン ----
   if (!isOpen) {

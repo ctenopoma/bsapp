@@ -242,7 +242,7 @@ class FieldSuggestion(BaseModel):
 
 
 class HelperAskRequest(BaseModel):
-    context: Literal["persona", "task", "setup"]
+    context: Literal["persona", "task", "setup", "rag", "patent"]
     question: str
     history: List[HelperMessage] = Field(default_factory=list)
     current_input: Optional[dict] = None  # 現在の入力値 {"name": "...", "role": "..."}

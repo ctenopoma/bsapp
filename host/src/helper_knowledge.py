@@ -13,7 +13,7 @@ from typing import Literal
 
 logger = logging.getLogger("bsapp.helper")
 
-ContextType = Literal["persona", "task", "setup"]
+ContextType = Literal["persona", "task", "setup", "rag", "patent"]
 
 # host/knowledge/ ディレクトリ (host/ 直下)
 KNOWLEDGE_DIR = Path(__file__).resolve().parents[1] / "knowledge"
@@ -23,6 +23,8 @@ _KNOWLEDGE_FILES: dict[str, str] = {
     "persona": "persona.md",
     "task": "task.md",
     "setup": "setup.md",
+    "rag": "rag.md",
+    "patent": "patent.md",
 }
 
 
@@ -57,6 +59,21 @@ def get_system_prompt(context: ContextType) -> str:
         fields_description = (
             "フィールド:\n"
             '- description (説明): タスクの内容。エージェントに何をさせたいかの指示。\n'
+        )
+    elif context == "rag":
+        context_label = "RAG（データベース）"
+        fields_description = (
+            "フィールド:\n"
+            '- tag (タグ名): ドキュメントコレクションのグループ名。英数字推奨。\n'
+            '- strategy (チャンク戦略): ドキュメントの分割方法。recursive_semantic / fixed_size / paragraph から選択。\n'
+        )
+    elif context == "patent":
+        context_label = "特許調査"
+        fields_description = (
+            "フィールド:\n"
+            '- analyze_system_prompt (企業別分析 システムプロンプト): 各企業の特許を分析する際のAIへの指示。\n'
+            '- analyze_output_format (企業別分析 出力フォーマット): 企業別レポートの出力形式。\n'
+            '- summary_system_prompt (総括 システムプロンプト): 全企業を横断してまとめる際の指示。\n'
         )
     else:  # setup
         context_label = "セッション設定"
