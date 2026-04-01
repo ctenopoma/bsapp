@@ -19,6 +19,7 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_known_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
 
     personas: Mapped[list["Persona"]] = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="user", cascade="all, delete-orphan")

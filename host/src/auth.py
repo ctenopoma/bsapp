@@ -84,6 +84,7 @@ async def _get_or_create_user(
     display_name: str,
     azure_oid: Optional[str],
     force_approved: bool = False,
+    client_ip: Optional[str] = None,
 ) -> User:
     """Find existing user by email or OID, or create a new pending user.
     The very first user ever gets auto-approved + admin rights.
@@ -116,6 +117,7 @@ async def _get_or_create_user(
             is_admin=approved,
             created_at=now,
             last_login_at=now,
+            last_known_ip=client_ip,
         )
         db.add(user)
         if force_approved:
@@ -130,6 +132,8 @@ async def _get_or_create_user(
         if azure_oid:
             user.azure_oid = azure_oid
         user.last_login_at = now
+        if client_ip:
+            user.last_known_ip = client_ip
         if force_approved and (not user.is_approved or not user.is_admin):
             user.is_approved = True
             user.is_admin = True
@@ -137,6 +141,74 @@ async def _get_or_create_user(
 
     await db.commit()
     await db.refresh(user)
+    return user
+
+
+async def _get_or_create_dev_user(
+    db: AsyncSession,
+    session_id: str,
+    client_ip: Optional[str],
+) -> User:
+    """DEV_AUTH_BYPASS 用: session_id でユーザーを検索し、なければ IP で検索してセッション再紐付けする。
+    どちらも見つからない場合は新規作成。
+    """
+    email = f"dev_{session_id}@dev.local"
+    short_id = session_id[:8]
+    display_name = f"Dev User ({short_id})"
+    now = datetime.now(timezone.utc)
+
+    # 1. セッションIDで検索（通常ルート）
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is not None:
+        user.last_login_at = now
+        if client_ip:
+            user.last_known_ip = client_ip
+        await db.commit()
+        await db.refresh(user)
+        return user
+
+    # 2. セッションID未知 → IPで既存dev.localユーザーを検索（localStorage削除後の復元）
+    if client_ip:
+        result = await db.execute(
+            select(User)
+            .where(User.last_known_ip == client_ip)
+            .where(User.email.like("%@dev.local"))
+            .order_by(User.last_login_at.desc())
+            .limit(1)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            old_email = existing.email
+            existing.email = email
+            existing.display_name = display_name
+            existing.last_login_at = now
+            existing.last_known_ip = client_ip
+            await db.commit()
+            await db.refresh(existing)
+            logger.info(
+                f"Dev user re-associated by IP {client_ip}: {old_email} → {email}"
+            )
+            return existing
+
+    # 3. 完全新規
+    count_result = await db.execute(select(func.count()).select_from(User))
+    is_first = count_result.scalar_one() == 0
+    user = User(
+        id=str(uuid.uuid4()),
+        email=email,
+        display_name=display_name,
+        azure_oid=None,
+        is_approved=True,
+        is_admin=True,
+        created_at=now,
+        last_login_at=now,
+        last_known_ip=client_ip,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    logger.info(f"Dev user {email} created (IP: {client_ip}, first={is_first})")
     return user
 
 
@@ -179,16 +251,11 @@ async def get_current_user(
     different browsers/machines get different user records.
     Otherwise validates the Azure AD Bearer JWT.
     """
+    client_ip: Optional[str] = request.client.host if request.client else None
+
     if DEV_AUTH_BYPASS:
         session_id = request.headers.get("x-dev-session-id", "default")
-        short_id = session_id[:8]
-        user = await _get_or_create_user(
-            db,
-            email=f"dev_{session_id}@dev.local",
-            display_name=f"Dev User ({short_id})",
-            azure_oid=None,
-            force_approved=True,
-        )
+        user = await _get_or_create_dev_user(db, session_id=session_id, client_ip=client_ip)
         return user
 
     if credentials is None:
@@ -206,7 +273,9 @@ async def get_current_user(
     if not email:
         raise HTTPException(status_code=401, detail="Token missing email claim")
 
-    user = await _get_or_create_user(db, email=email, display_name=display_name, azure_oid=oid)
+    user = await _get_or_create_user(
+        db, email=email, display_name=display_name, azure_oid=oid, client_ip=client_ip
+    )
     return user
 
 

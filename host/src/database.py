@@ -39,3 +39,11 @@ async def init_db() -> None:
                     f"ALTER TABLE session_presets DROP COLUMN IF EXISTS {col}"
                 )
             )
+        # Migrate: add last_known_ip to users (for IP-based session recovery)
+        import sqlalchemy as _sa
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_ip VARCHAR(45)"
+        ))
+        await conn.execute(_sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_users_last_known_ip ON users (last_known_ip)"
+        ))
