@@ -40,6 +40,59 @@ from .template_resolver import resolve_template_variables
 
 
 # ------------------------------------------------------------------
+# RAG検索クエリ生成
+# ------------------------------------------------------------------
+
+def _generate_rag_query(
+    persona: Persona,
+    session: SessionMemory,
+) -> str:
+    """LLMを使ってRAG検索クエリを生成する。
+
+    ペルソナの rag_query_prompt が設定されていればLLMに投げてキーワードを生成する。
+    空の場合はテーマをそのまま返す（従来の動作）。LLMエラー時もテーマにフォールバックする。
+
+    使用可能テンプレート変数:
+      {theme}        - 現在のテーマ
+      {common_theme} - セッション共通テーマ
+      {history}      - 直近10件の会話履歴 ("名前: 発言" 形式)
+    """
+    prompt_template = (
+        persona.rag_config.rag_query_prompt
+        if persona.rag_config and persona.rag_config.rag_query_prompt
+        else ""
+    )
+    if not prompt_template:
+        return session.current_theme  # 従来の動作
+
+    history_text = "\n".join(
+        f"{m.agent_name}: {m.content}" for m in session.history[-10:]
+    )
+    try:
+        filled = prompt_template.format(
+            theme=session.current_theme,
+            common_theme=session.common_theme or "",
+            history=history_text,
+        )
+    except KeyError:
+        # テンプレート変数名が不正な場合はフォールバック
+        return session.current_theme
+
+    try:
+        from ..agent_runner import create_llm
+        import logging
+        logger = logging.getLogger("bsapp.llm")
+        result = create_llm().invoke(filled)
+        query = result.content.strip()
+        logger.info(f"[RAG] LLM-generated query: {query!r}")
+        return query
+    except Exception as e:
+        import logging
+        logging.getLogger("bsapp.llm").warning(f"[RAG] Query generation failed, falling back to theme: {e}")
+        return session.current_theme  # フォールバック
+
+
+# ------------------------------------------------------------------
 # タスク選択ストラテジー
 # ------------------------------------------------------------------
 
@@ -146,9 +199,10 @@ def build_agent_input(
     if persona.rag_config and persona.rag_config.enabled and persona.rag_config.tag:
         rag_type = persona.rag_config.rag_type or "qdrant"
         if rag_type == "qdrant":
+            rag_query = _generate_rag_query(persona, session)
             rag_context = rag_manager.search_context(
                 tag=persona.rag_config.tag,
-                query=session.current_theme,
+                query=rag_query,
             )
         # 将来的に他のRAG種別を追加する場合はここに elif を追加:
         # elif rag_type == "other_rag":

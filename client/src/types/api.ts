@@ -2,6 +2,7 @@ export interface RagConfig {
   enabled: boolean;
   tag?: string;
   rag_type?: string; // RAGの種別ID (例: "qdrant")
+  rag_query_prompt?: string; // RAG検索クエリ生成プロンプト (空=テーマをそのまま使用)
 }
 
 export interface AvailableRagType {

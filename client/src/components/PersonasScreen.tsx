@@ -27,7 +27,12 @@ function RagSection({
     if (!typeId) {
       onChange(undefined);
     } else {
-      onChange({ enabled: true, rag_type: typeId, tag: ragConfig?.tag ?? '' });
+      onChange({
+        enabled: true,
+        rag_type: typeId,
+        tag: ragConfig?.tag ?? '',
+        rag_query_prompt: ragConfig?.rag_query_prompt ?? '',
+      });
     }
   };
 
@@ -47,12 +52,27 @@ function RagSection({
         {typesLoaded && availableTypes.length === 0 && <option disabled value="">（RAG種別未設定）</option>}
       </select>
       {selectedType && (
-        <input
-          placeholder="RAGコレクションのタグ名"
-          value={ragConfig?.tag ?? ''}
-          onChange={e => onChange({ enabled: true, rag_type: selectedType, tag: e.target.value })}
-          className={INPUT_CLS}
-        />
+        <>
+          <input
+            placeholder="RAGコレクションのタグ名"
+            value={ragConfig?.tag ?? ''}
+            onChange={e => onChange({ enabled: true, rag_type: selectedType, tag: e.target.value, rag_query_prompt: ragConfig?.rag_query_prompt ?? '' })}
+            className={INPUT_CLS}
+          />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">
+              RAG検索クエリ生成プロンプト
+              <span className="ml-1 text-gray-400">（空=テーマをそのままクエリに使用）</span>
+            </label>
+            <textarea
+              placeholder={`LLMにRAG検索キーワードを考えさせるプロンプト。空欄の場合はテーマがそのまま使われます。\n使用可能な変数: {theme}, {common_theme}, {history}`}
+              value={ragConfig?.rag_query_prompt ?? ''}
+              onChange={e => onChange({ enabled: true, rag_type: selectedType, tag: ragConfig?.tag ?? '', rag_query_prompt: e.target.value })}
+              rows={4}
+              className={`${INPUT_CLS} resize-y font-mono text-xs`}
+            />
+          </div>
+        </>
       )}
     </div>
   );

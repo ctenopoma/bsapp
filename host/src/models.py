@@ -18,6 +18,8 @@ class RagConfig(BaseModel):
     enabled: bool = False
     tag: Optional[str] = None      # 使用するRAGコレクションのタグ名
     rag_type: Optional[str] = None # RAGの種別ID (例: "qdrant")
+    rag_query_prompt: str = ""     # RAG検索クエリ生成プロンプト (空=テーマをそのまま使用)
+                                   # 使用可能変数: {theme}, {common_theme}, {history}
 
 
 # -------------------------------------------------------------------
