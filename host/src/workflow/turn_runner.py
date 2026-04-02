@@ -38,9 +38,14 @@ def run_one_theme(session: SessionMemory, agent_executor, summarizer) -> str:
         strategy_name = session.current_theme_config.theme_strategy
 
     strategy = get_strategy(strategy_name)
+    # summarize=False のテーマは要約をスキップして空文字を返す
+    should_summarize = True
+    if session.current_theme_config is not None:
+        should_summarize = session.current_theme_config.summarize
+    effective_summarizer = summarizer if should_summarize else lambda _: ""
     ctx = StrategyContext(
         session=session,
         agent_executor=agent_executor,
-        summarizer=summarizer,
+        summarizer=effective_summarizer,
     )
     return strategy.run(ctx)

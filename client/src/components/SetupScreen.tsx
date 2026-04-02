@@ -3,7 +3,7 @@ import { generateUUID } from '../lib/uuid';
 import { useNavigate } from 'react-router-dom';
 import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
 import {
-  getPersonas, getTasks, createSession, updateSessionTitle, getThemeEntries, saveThemeEntries,
+  getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
   getSessionConfig, saveSessionConfig,
   getPresets, createPreset, updatePreset, deletePreset, PresetData,
   getPersonaPresets, PersonaPresetData,
@@ -28,14 +28,15 @@ interface ThemeEntry {
   flowRoleMap: Record<string, string[]>; // フロー役割マッピング（役割名 → ペルソナIDリスト）
   taskAssignment: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
   personaTaskMap: Record<string, string>; // fixed時のペルソナID→タスクID
+  summarize: boolean; // テーマ終了後に要約を生成するか
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false, flowRoleMap: {} as Record<string, string[]>, taskAssignment: '', personaTaskMap: {} };
+  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false, flowRoleMap: {} as Record<string, string[]>, taskAssignment: '', personaTaskMap: {}, summarize: true };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[]; flow_role_map?: Record<string, string>; task_assignment?: string; persona_task_map?: Record<string, string> }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[]; flow_role_map?: Record<string, string>; task_assignment?: string; persona_task_map?: Record<string, string>; summarize?: boolean }): ThemeEntry {
   const personaOrder = e.persona_order ?? [];
   return {
     localId: e.id,
@@ -58,6 +59,7 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     })(),
     taskAssignment: e.task_assignment ?? '',
     personaTaskMap: e.persona_task_map ?? {},
+    summarize: e.summarize ?? true,
   };
 }
 
@@ -81,8 +83,84 @@ function uiToDb(e: ThemeEntry, i: number) {
     })(),
     task_assignment: e.taskAssignment || undefined,
     persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
+    summarize: e.summarize,
     sort_order: i,
   };
+}
+
+interface VariableInserterProps {
+  getTextarea: () => HTMLTextAreaElement | null;
+  value: string;
+  onValueChange: (newValue: string) => void;
+  themes: ThemeEntry[];
+  themeCount?: number; // 表示するテーマ数（未指定=全テーマ）
+  personas: Persona[];
+}
+
+function VariableInserter({ getTextarea, value, onValueChange, themes, themeCount, personas }: VariableInserterProps) {
+  const [open, setOpen] = useState(false);
+  const visibleThemes = themeCount !== undefined ? themes.slice(0, themeCount) : themes;
+  if (visibleThemes.length === 0) return null;
+
+  const insert = (varText: string) => {
+    const ta = getTextarea();
+    const start = ta?.selectionStart ?? value.length;
+    const end = ta?.selectionEnd ?? value.length;
+    const newValue = value.slice(0, start) + varText + value.slice(end);
+    onValueChange(newValue);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = start + varText.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+      >
+        変数を挿入 {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <div className="mt-1 border border-blue-100 rounded-lg bg-blue-50 p-2 space-y-1.5 text-xs">
+          {visibleThemes.map((theme, i) => {
+            const n = i + 1;
+            const label = theme.text.trim().slice(0, 18) || `テーマ${n}`;
+            return (
+              <div key={theme.localId} className="flex items-start gap-2 flex-wrap">
+                <span className="text-gray-500 w-24 shrink-0 pt-0.5 font-medium truncate" title={theme.text}>
+                  theme{n}: {label}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" onClick={() => insert(`{{theme${n}_summary}}`)}
+                    className="bg-white border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 whitespace-nowrap flex items-baseline gap-1">
+                    要約
+                    <span className="font-mono text-blue-400 text-[10px]">{`{{theme${n}_summary}}`}</span>
+                  </button>
+                  <button type="button" onClick={() => insert(`{{theme${n}_messages}}`)}
+                    className="bg-white border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 whitespace-nowrap flex items-baseline gap-1">
+                    全発言
+                    <span className="font-mono text-blue-400 text-[10px]">{`{{theme${n}_messages}}`}</span>
+                  </button>
+                  {personas.map(p => (
+                    <button key={p.id} type="button" onClick={() => insert(`{{theme${n}_agent:${p.name}}}`)}
+                      className="bg-white border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded hover:bg-purple-100 whitespace-nowrap flex items-baseline gap-1">
+                      {p.name}の発言
+                      <span className="font-mono text-purple-400 text-[10px]">{`{{theme${n}_agent:${p.name}}}`}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function SetupScreen() {
@@ -90,7 +168,10 @@ export default function SetupScreen() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [allTasks, setAllTasks] = useState<TaskModel[]>([]);
   const [themeEntries, setThemeEntries] = useState<ThemeEntry[]>([newEntry()]);
+  const preInfoRef = useRef<HTMLTextAreaElement | null>(null);
   const themeTextRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const themePreInfoRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activePersonaIds, setActivePersonaIds] = useState<Set<string>>(new Set());
   const [activeTaskIds, setActiveTaskIds] = useState<Set<string>>(new Set());
   const [commonTheme, setCommonTheme] = useState('');
@@ -115,10 +196,14 @@ export default function SetupScreen() {
   const [selectedPersonaPresetId, setSelectedPersonaPresetId] = useState<string>('');
   const [selectedTaskPresetId, setSelectedTaskPresetId] = useState<string>('');
 
+  const MAX_TEXTAREA_H = 160;
+
   const resizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
     element.style.height = 'auto';
-    element.style.height = `${element.scrollHeight}px`;
+    const sh = element.scrollHeight;
+    element.style.height = `${Math.min(sh, MAX_TEXTAREA_H)}px`;
+    element.style.overflowY = sh > MAX_TEXTAREA_H ? 'auto' : 'hidden';
   };
 
   useEffect(() => {
@@ -147,9 +232,12 @@ export default function SetupScreen() {
   }, []);
 
   useEffect(() => {
+    const container = containerRef.current;
+    const savedScroll = container?.scrollTop ?? 0;
     themeEntries.forEach(entry => {
       resizeTextarea(themeTextRefs.current[entry.localId] ?? null);
     });
+    if (container) container.scrollTop = savedScroll;
   }, [themeEntries]);
 
   const addTheme = () => setThemeEntries(prev => {
@@ -388,6 +476,7 @@ export default function SetupScreen() {
       })(),
       task_assignment: e.taskAssignment || undefined,
       persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
+      summarize: e.summarize,
     }));
 
     try {
@@ -445,7 +534,7 @@ export default function SetupScreen() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto flex flex-col h-full overflow-y-auto">
+    <div ref={containerRef} className="p-8 max-w-3xl mx-auto flex flex-col h-full overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
           <Settings className="text-blue-600" />
@@ -534,21 +623,29 @@ export default function SetupScreen() {
             onChange={e => { setCommonTheme(e.target.value); saveSessionConfig('common_theme', e.target.value).catch(console.error); }}
             placeholder="例: 2030年の社会課題"
             rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
+            className="w-full max-h-40 overflow-y-auto border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
           />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">事前情報 <span className="text-gray-400 font-normal text-xs">（全エージェントに共有する背景情報・テンプレート変数使用可）</span></label>
           <textarea
+            ref={preInfoRef}
             value={preInfo}
             onChange={e => { setPreInfo(e.target.value); saveSessionConfig('pre_info', e.target.value).catch(console.error); }}
             placeholder={"議論の前提となる情報を入力（ファイル内容の貼り付けなど）\nテンプレート変数例: {{theme1_summary}}"}
             rows={4}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+            className="w-full max-h-48 overflow-y-auto border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
           />
-          <p className="text-xs text-gray-400 mt-1">
-            変数: <code className="bg-gray-100 px-1 rounded">{`{{themeN_summary}}`}</code> 要約 / <code className="bg-gray-100 px-1 rounded">{`{{themeN_messages}}`}</code> 全発言 / <code className="bg-gray-100 px-1 rounded">{`{{themeN_agent:名前}}`}</code> 特定エージェント（N=テーマ番号, 1始まり）
-          </p>
+          <VariableInserter
+            getTextarea={() => preInfoRef.current}
+            value={preInfo}
+            onValueChange={newValue => {
+              setPreInfo(newValue);
+              saveSessionConfig('pre_info', newValue).catch(console.error);
+            }}
+            themes={themeEntries}
+            personas={personas.filter(p => activePersonaIds.has(p.id))}
+          />
         </div>
         <div>
           <label className="block text-sm font-bold text-gray-700 mb-1">ターン数 <span className="text-gray-400 font-normal text-xs">（1テーマあたり / デフォルトはSettings画面で変更）</span></label>
@@ -874,15 +971,22 @@ export default function SetupScreen() {
                                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0 pt-2">Pre-Info</span>
                                 <div className="flex-1">
                                   <textarea
+                                    ref={element => {
+                                      themePreInfoRefs.current[entry.localId] = element;
+                                    }}
                                     value={entry.preInfo}
                                     onChange={e => updateThemePreInfo(entry.localId, e.target.value)}
                                     placeholder="テーマ固有の事前情報（テンプレート変数使用可）"
                                     rows={2}
                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
                                   />
-                                  <p className="text-xs text-gray-400 mt-1">
-                                    変数: <code className="bg-gray-100 px-1 rounded">{`{{theme1_summary}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_messages}}`}</code> <code className="bg-gray-100 px-1 rounded">{`{{theme1_agent:名前}}`}</code> （番号は1始まり）
-                                  </p>
+                                  <VariableInserter
+                                    getTextarea={() => themePreInfoRefs.current[entry.localId]}
+                                    value={entry.preInfo}
+                                    onValueChange={newValue => updateThemePreInfo(entry.localId, newValue)}
+                                    themes={themeEntries}
+                                    personas={personas.filter(p => entry.personaIds.size === 0 ? activePersonaIds.has(p.id) : entry.personaIds.has(p.id))}
+                                  />
                                 </div>
                               </div>
                               <div className="flex items-center gap-3 mb-3">
@@ -903,7 +1007,26 @@ export default function SetupScreen() {
                                   placeholder={String(turnsPerTheme)}
                                   className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                 />
-                                <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
+                                  <span className="text-xs text-gray-400">（空=デフォルト {turnsPerTheme}）</span>
+                              </div>
+                              <div className="flex items-center gap-2 mb-3">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wide w-16 shrink-0">Summary</span>
+                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.summarize}
+                                    onChange={e => {
+                                      const v = e.target.checked;
+                                      setThemeEntries(prev => {
+                                        const next = prev.map(t => t.localId === entry.localId ? { ...t, summarize: v } : t);
+                                        saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                        return next;
+                                      });
+                                    }}
+                                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm text-gray-600">テーマ終了後に要約を生成する</span>
+                                </label>
                               </div>
                               {/* タスク割り当てモード */}
                               {allTasks.filter(t => activeTaskIds.has(t.id)).length > 0 && (

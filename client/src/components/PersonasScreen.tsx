@@ -10,6 +10,64 @@ import type { FieldSuggestion } from '../types/api';
 const SELECT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white";
 const INPUT_CLS = "w-full border border-gray-300 rounded-lg p-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500";
 
+function SimpleVarInserter({ getTextarea, value, onValueChange, variables }: {
+  getTextarea: () => HTMLTextAreaElement | null;
+  value: string;
+  onValueChange: (newValue: string) => void;
+  variables: { label: string; value: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  const insert = (varText: string) => {
+    const ta = getTextarea();
+    const start = ta?.selectionStart ?? value.length;
+    const end = ta?.selectionEnd ?? value.length;
+    const newValue = value.slice(0, start) + varText + value.slice(end);
+    onValueChange(newValue);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      const pos = start + varText.length;
+      ta.setSelectionRange(pos, pos);
+    });
+  };
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+      >
+        変数を挿入 {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <div className="mt-1 border border-blue-100 rounded-lg bg-blue-50 p-2 flex flex-wrap gap-1 text-xs">
+          {variables.map(v => (
+            <button
+              key={v.value}
+              type="button"
+              onClick={() => insert(v.value)}
+              className="bg-white border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-100 whitespace-nowrap flex items-baseline gap-1"
+            >
+              {v.label}
+              {v.label !== v.value && (
+                <span className="font-mono text-blue-400 text-[10px]">{v.value}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RAG_QUERY_VARS = [
+  { label: '現在のテーマ', value: '{theme}' },
+  { label: '共通テーマ', value: '{common_theme}' },
+  { label: '会話履歴', value: '{history}' },
+];
+
 function RagSection({
   ragConfig,
   onChange,
@@ -22,6 +80,7 @@ function RagSection({
   typesLoaded: boolean;
 }) {
   const selectedType = ragConfig?.rag_type ?? '';
+  const ragQueryRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleTypeChange = (typeId: string) => {
     if (!typeId) {
@@ -65,11 +124,18 @@ function RagSection({
               <span className="ml-1 text-gray-400">（空=テーマをそのままクエリに使用）</span>
             </label>
             <textarea
-              placeholder={`LLMにRAG検索キーワードを考えさせるプロンプト。空欄の場合はテーマがそのまま使われます。\n使用可能な変数: {theme}, {common_theme}, {history}`}
+              ref={ragQueryRef}
+              placeholder={`LLMにRAG検索キーワードを考えさせるプロンプト。空欄の場合はテーマがそのまま使われます。`}
               value={ragConfig?.rag_query_prompt ?? ''}
               onChange={e => onChange({ enabled: true, rag_type: selectedType, tag: ragConfig?.tag ?? '', rag_query_prompt: e.target.value })}
               rows={4}
               className={`${INPUT_CLS} resize-y font-mono text-xs`}
+            />
+            <SimpleVarInserter
+              getTextarea={() => ragQueryRef.current}
+              value={ragConfig?.rag_query_prompt ?? ''}
+              onValueChange={prompt => onChange({ enabled: true, rag_type: selectedType, tag: ragConfig?.tag ?? '', rag_query_prompt: prompt })}
+              variables={RAG_QUERY_VARS}
             />
           </div>
         </>
@@ -84,6 +150,8 @@ export default function PersonasScreen() {
   const [editForm, setEditForm] = useState<Partial<Persona>>({});
   const createRoleRef = useRef<HTMLTextAreaElement | null>(null);
   const editRoleRef = useRef<HTMLTextAreaElement | null>(null);
+  const agentPromptRef = useRef<HTMLTextAreaElement | null>(null);
+  const summaryPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const [availableRagTypes, setAvailableRagTypes] = useState<AvailableRagType[]>([]);
   const [ragTypesLoaded, setRagTypesLoaded] = useState(false);
 
@@ -437,11 +505,28 @@ export default function PersonasScreen() {
             <code className="bg-gray-100 px-1 rounded">{'{output_format}'}</code>
           </p>
           <textarea
+            ref={agentPromptRef}
             value={agentPrompt}
             onChange={e => setAgentPrompt(e.target.value)}
             rows={12}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y font-mono"
             placeholder="空欄の場合はデフォルトのプロンプトが使用されます"
+          />
+          <SimpleVarInserter
+            getTextarea={() => agentPromptRef.current}
+            value={agentPrompt}
+            onValueChange={setAgentPrompt}
+            variables={[
+              { label: 'ロール定義', value: '{role}' },
+              { label: 'タスク内容', value: '{task}' },
+              { label: 'エージェント名', value: '{name}' },
+              { label: 'テーマ/クエリ', value: '{query}' },
+              { label: '事前情報', value: '{pre_info_section}' },
+              { label: 'RAG検索結果', value: '{rag_section}' },
+              { label: '会話履歴', value: '{history}' },
+              { label: '過去テーマ要約', value: '{previous_summaries}' },
+              { label: '出力形式', value: '{output_format}' },
+            ]}
           />
           <div className="flex justify-end mt-3">
             <button
@@ -475,10 +560,21 @@ export default function PersonasScreen() {
             <code className="bg-gray-100 px-1 rounded">{'{output_format}'}</code>
           </p>
           <textarea
+            ref={summaryPromptRef}
             value={summaryPrompt}
             onChange={e => setSummaryPrompt(e.target.value)}
             rows={8}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 resize-y font-mono"
+          />
+          <SimpleVarInserter
+            getTextarea={() => summaryPromptRef.current}
+            value={summaryPrompt}
+            onValueChange={setSummaryPrompt}
+            variables={[
+              { label: 'テーマ', value: '{theme}' },
+              { label: '会話履歴', value: '{history}' },
+              { label: '出力形式', value: '{output_format}' },
+            ]}
           />
           <div className="flex justify-end mt-3">
             <button

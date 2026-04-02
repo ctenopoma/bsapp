@@ -76,6 +76,7 @@ class ThemeConfig(BaseModel):
     flow_role_map: dict = Field(default_factory=dict)  # フロー役割マッピング {persona_id: role_name} テーマ×立場のペルソナ割当
     task_assignment: str = ""  # タスク割り当てモード: random / round_robin / fixed (空=グローバル設定)
     persona_task_map: dict = Field(default_factory=dict)  # fixed時のペルソナID→タスクIDマッピング
+    summarize: bool = True  # テーマ終了後に要約を生成するか
 
 
 class SessionStartRequest(BaseModel):

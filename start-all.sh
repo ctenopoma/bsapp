@@ -49,7 +49,7 @@ echo ""
 
 # Launch backend in background
 cd "$SCRIPT_DIR/host"
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload &
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8089 --reload &
 BACKEND_PID=$!
 
 # Launch frontend in background

@@ -48,6 +48,7 @@ export interface ThemeConfig {
   flow_role_map?: Record<string, string | string[]>; // フロー役割マッピング（役割名 → ペルソナID or ID[]）
   task_assignment?: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
   persona_task_map?: Record<string, string>; // fixed時のペルソナID→タスクIDマッピング
+  summarize?: boolean; // テーマ終了後に要約を生成するか（省略時=true）
 }
 
 // テーマ内ストラテジーの定義

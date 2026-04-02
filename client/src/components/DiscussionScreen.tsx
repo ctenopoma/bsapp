@@ -5,6 +5,7 @@ import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus } from '../lib/api';
 import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -33,6 +34,12 @@ function agentMessages(group: ThemeGroup) {
   return group.messages.filter(m => m.agent_name !== 'Summary' && m.agent_name !== '[会話圧縮]');
 }
 
+function shortThemeName(theme: string): string {
+  const firstLine = theme.split('\n')[0].trim();
+  if (firstLine.length <= 35) return firstLine;
+  return firstLine.slice(0, 35) + '…';
+}
+
 export default function DiscussionScreen() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -46,6 +53,8 @@ export default function DiscussionScreen() {
 
   const [openThemes, setOpenThemes] = useState<Set<string>>(new Set());
   const [openMessages, setOpenMessages] = useState<Set<string>>(new Set());
+  const [openThemeTexts, setOpenThemeTexts] = useState<Set<string>>(new Set());
+  const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
   const initializedRef = useRef(false);
 
   useEffect(() => {
@@ -91,6 +100,22 @@ export default function DiscussionScreen() {
 
   const toggleMessage = (id: string) => {
     setOpenMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleThemeText = (theme: string) => {
+    setOpenThemeTexts(prev => {
+      const next = new Set(prev);
+      if (next.has(theme)) next.delete(theme); else next.add(theme);
+      return next;
+    });
+  };
+
+  const toggleSummary = (id: string) => {
+    setOpenSummaries(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
@@ -308,39 +333,61 @@ export default function DiscussionScreen() {
 
           {groups.map((group) => {
             const isThemeOpen = openThemes.has(group.theme);
+            const isThemeTextOpen = openThemeTexts.has(group.theme);
             const themeKey = `theme:${group.theme}`;
             const themeCopied = copiedState === themeKey;
+            const shortName = shortThemeName(group.theme);
+            const hasLongTheme = group.theme.length > shortName.replace('…', '').length + 1;
 
             return (
               <div key={group.theme} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 {/* テーマヘッダー */}
-                <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 border-b border-gray-200">
-                  <button
-                    onClick={() => toggleTheme(group.theme)}
-                    className="flex items-center gap-2 flex-1 text-left hover:text-blue-700 transition-colors"
-                  >
-                    {isThemeOpen
-                      ? <ChevronDown size={16} className="text-gray-400 shrink-0" />
-                      : <ChevronRight size={16} className="text-gray-400 shrink-0" />}
-                    <span className="font-bold text-gray-800">{group.theme}</span>
-                    {!isThemeOpen && (
-                      <span className="text-xs text-gray-400 ml-2">
-                        {agentMessages(group).length} 件の発言
-                        {group.messages.some(m => m.agent_name === 'Summary') ? ' · 要約あり' : ''}
-                      </span>
+                <div className="bg-gray-50 border-b border-gray-200">
+                  <div className="flex items-center gap-2 px-5 py-3">
+                    <button
+                      onClick={() => toggleTheme(group.theme)}
+                      className="flex items-center gap-2 flex-1 text-left hover:text-blue-700 transition-colors min-w-0"
+                    >
+                      {isThemeOpen
+                        ? <ChevronDown size={16} className="text-gray-400 shrink-0" />
+                        : <ChevronRight size={16} className="text-gray-400 shrink-0" />}
+                      <span className="font-bold text-gray-800 truncate">{shortName}</span>
+                      {!isThemeOpen && (
+                        <span className="text-xs text-gray-400 ml-2 shrink-0">
+                          {agentMessages(group).length} 件の発言
+                          {group.messages.some(m => m.agent_name === 'Summary') ? ' · 要約あり' : ''}
+                        </span>
+                      )}
+                    </button>
+                    {hasLongTheme && (
+                      <button
+                        onClick={() => toggleThemeText(group.theme)}
+                        className={`shrink-0 text-xs px-2 py-1 rounded transition-colors border ${
+                          isThemeTextOpen
+                            ? 'bg-blue-50 text-blue-600 border-blue-200'
+                            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        {isThemeTextOpen ? 'テーマを閉じる' : 'テーマ全文'}
+                      </button>
                     )}
-                  </button>
-                  <button
-                    onClick={() => handleCopyTheme(group)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors border ${
-                      themeCopied
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : 'bg-white hover:bg-gray-100 text-gray-500 border-gray-200'
-                    }`}
-                  >
-                    {themeCopied ? <Check size={12} /> : <Copy size={12} />}
-                    {themeCopied ? 'コピー済' : 'コピー'}
-                  </button>
+                    <button
+                      onClick={() => handleCopyTheme(group)}
+                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                        themeCopied
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-white hover:bg-gray-100 text-gray-500 border-gray-200'
+                      }`}
+                    >
+                      {themeCopied ? <Check size={12} /> : <Copy size={12} />}
+                      {themeCopied ? 'コピー済' : 'コピー'}
+                    </button>
+                  </div>
+                  {isThemeTextOpen && (
+                    <div className="px-5 pb-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap border-t border-gray-200 bg-white py-4">
+                      {group.theme}
+                    </div>
+                  )}
                 </div>
 
                 {/* テーマ本文 */}
@@ -357,14 +404,26 @@ export default function DiscussionScreen() {
                       }
 
                       if (m.agent_name === 'Summary') {
+                        const isSummaryOpen = openSummaries.has(m.id);
                         return (
-                          <div key={m.id} className="mx-5 my-4 bg-yellow-50 border border-yellow-200 p-5 rounded-xl">
-                            <div className="flex items-center gap-2 text-yellow-800 font-bold mb-3">
-                              <CheckCircle2 size={18} /> Theme Summary
-                            </div>
-                            <div className="prose prose-sm prose-yellow max-w-none">
-                              <ReactMarkdown>{m.content}</ReactMarkdown>
-                            </div>
+                          <div key={m.id} className="mx-5 my-4 bg-yellow-50 border border-yellow-200 rounded-xl overflow-hidden">
+                            <button
+                              onClick={() => toggleSummary(m.id)}
+                              className="w-full flex items-center gap-2 px-5 py-3 text-yellow-800 font-bold hover:bg-yellow-100 transition-colors"
+                            >
+                              {isSummaryOpen
+                                ? <ChevronDown size={16} className="shrink-0" />
+                                : <ChevronRight size={16} className="shrink-0" />}
+                              <CheckCircle2 size={16} className="shrink-0" />
+                              <span>Theme Summary</span>
+                            </button>
+                            {isSummaryOpen && (
+                              <div className="px-5 pb-5 pt-1">
+                                <div className="prose prose-sm prose-yellow max-w-none">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       }
@@ -402,7 +461,7 @@ export default function DiscussionScreen() {
                             <div className="px-5 pb-5 pt-1">
                               <div className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm text-gray-800 text-[15px] leading-relaxed">
                                 <div className="prose prose-sm max-w-none">
-                                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                                 </div>
                               </div>
                             </div>

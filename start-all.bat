@@ -73,7 +73,7 @@ echo =====================================================
 echo.
 
 REM Launch backend in new window
-start "BSApp Backend" cmd /k "cd /d ""!SCRIPT_DIR!\host"" && uv run uvicorn src.main:app --host 0.0.0.0 --port 8080 --reload"
+start "BSApp Backend" cmd /k "cd /d ""!SCRIPT_DIR!\host"" && uv run uvicorn src.main:app --host 0.0.0.0 --port 8089 --reload"
 
 REM Wait a bit before starting frontend
 timeout /t 3 /nobreak >nul
