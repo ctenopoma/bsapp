@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus } from '../lib/api';
-import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList } from 'lucide-react';
+import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList, Database } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -55,6 +55,8 @@ export default function DiscussionScreen() {
   const [openMessages, setOpenMessages] = useState<Set<string>>(new Set());
   const [openThemeTexts, setOpenThemeTexts] = useState<Set<string>>(new Set());
   const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
+  const [openRagContexts, setOpenRagContexts] = useState<Set<string>>(new Set());
+  const [ragContextMap, setRagContextMap] = useState<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
 
   useEffect(() => {
@@ -122,6 +124,14 @@ export default function DiscussionScreen() {
     });
   };
 
+  const toggleRagContext = (id: string) => {
+    setOpenRagContexts(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const handleStart = async () => {
     if (!sessionId) return;
     abortRef.current = false;
@@ -154,7 +164,14 @@ export default function DiscussionScreen() {
               }
               const afterCompress = turnRes.history_compressed ? await getMessages(sessionId) : current;
               await addMessage(sessionId, theme, turnRes.agent_name, turnRes.message, afterCompress.length);
-              setMessages(await getMessages(sessionId));
+              const updated = await getMessages(sessionId);
+              if (turnRes.rag_context) {
+                const newMsg = updated[updated.length - 1];
+                if (newMsg) {
+                  setRagContextMap(prev => new Map(prev).set(newMsg.id, turnRes.rag_context!));
+                }
+              }
+              setMessages(updated);
             }
             break;
           } else if (turnRes.status === 'error') {
@@ -175,9 +192,11 @@ export default function DiscussionScreen() {
 
             if (sumRes.status === 'completed') {
               allThemesDone = sumRes.all_themes_done ?? false;
-              const current = await getMessages(sessionId);
-              await addMessage(sessionId, 'System', 'Summary', sumRes.summary_text || 'Summarized.', current.length);
-              setMessages(await getMessages(sessionId));
+              if (sumRes.summary_text) {
+                const current = await getMessages(sessionId);
+                await addMessage(sessionId, 'System', 'Summary', sumRes.summary_text, current.length);
+                setMessages(await getMessages(sessionId));
+              }
               break;
             } else if (sumRes.status === 'error') {
               throw new Error(sumRes.error_msg || 'Summary failed');
@@ -432,6 +451,8 @@ export default function DiscussionScreen() {
                       const isMsgOpen = openMessages.has(m.id);
                       const preview = m.content.replace(/\n/g, ' ').slice(0, 80);
                       const hasMore = m.content.length > 80;
+                      const ragContext = ragContextMap.get(m.id);
+                      const isRagOpen = openRagContexts.has(m.id);
 
                       return (
                         <div
@@ -451,6 +472,12 @@ export default function DiscussionScreen() {
                                 {preview}{hasMore ? '…' : ''}
                               </span>
                             )}
+                            {ragContext && (
+                              <span className="shrink-0 flex items-center gap-1 text-xs text-teal-600 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5">
+                                <Database size={11} />
+                                RAG
+                              </span>
+                            )}
                             <span className="ml-auto shrink-0">
                               {isMsgOpen
                                 ? <ChevronDown size={15} className="text-gray-400" />
@@ -458,12 +485,33 @@ export default function DiscussionScreen() {
                             </span>
                           </button>
                           {isMsgOpen && (
-                            <div className="px-5 pb-5 pt-1">
+                            <div className="px-5 pb-5 pt-1 flex flex-col gap-2">
                               <div className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm text-gray-800 text-[15px] leading-relaxed">
                                 <div className="prose prose-sm max-w-none">
                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                                 </div>
                               </div>
+                              {ragContext && (
+                                <div className="bg-teal-50 border border-teal-200 rounded-xl overflow-hidden">
+                                  <button
+                                    onClick={() => toggleRagContext(m.id)}
+                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-teal-800 font-semibold text-sm hover:bg-teal-100 transition-colors"
+                                  >
+                                    {isRagOpen
+                                      ? <ChevronDown size={14} className="shrink-0" />
+                                      : <ChevronRight size={14} className="shrink-0" />}
+                                    <Database size={14} className="shrink-0" />
+                                    <span>RAG 参照コンテキスト</span>
+                                  </button>
+                                  {isRagOpen && (
+                                    <div className="px-4 pb-4 pt-1">
+                                      <pre className="text-xs text-teal-900 whitespace-pre-wrap leading-relaxed font-mono bg-white border border-teal-100 rounded-lg p-3 overflow-x-auto">
+                                        {ragContext}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

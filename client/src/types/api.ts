@@ -619,6 +619,7 @@ export interface TurnStatusResponse {
   is_theme_end?: boolean;
   all_themes_done?: boolean;
   history_compressed?: boolean;
+  rag_context?: string;
   error_msg?: string;
 }
 

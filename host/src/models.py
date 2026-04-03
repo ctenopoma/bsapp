@@ -107,6 +107,7 @@ class TurnStatusResponse(BaseModel):
     is_theme_end: Optional[bool] = None
     all_themes_done: Optional[bool] = None
     history_compressed: Optional[bool] = None  # 履歴圧縮が発生したか
+    rag_context: Optional[str] = None  # RAGで取得したコンテキスト
     error_msg: Optional[str] = None
 
 

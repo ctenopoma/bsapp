@@ -232,6 +232,7 @@ class AgentRunner:
                 "theme": session.current_theme,
                 "is_theme_end": is_theme_end,
                 "history_compressed": agent_input.history_compressed,
+                "rag_context": agent_input.rag_context or None,
             }
 
         except Exception as e:
@@ -244,7 +245,10 @@ class AgentRunner:
             if not session:
                 raise ValueError("Session not found")
 
-            summary_text = self._summarize_current_theme(session)
+            should_summarize = True
+            if session.current_theme_config is not None:
+                should_summarize = session.current_theme_config.summarize
+            summary_text = self._summarize_current_theme(session) if should_summarize else ""
             session.advance_theme(summary_text)
 
             job_statuses[job_id] = {
