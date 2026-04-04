@@ -31,6 +31,8 @@
     "notification:allow-is-permission-granted",
     "updater:default",
     "process:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-write-text"
   ]
 }

@@ -238,6 +238,31 @@ export default function DiscussionScreen() {
     setTimeout(() => setCopiedState(null), 2000);
   };
 
+  const safeCopyToClipboard = async (text: string, key: string) => {
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    
+    if (isTauri) {
+      try {
+        await writeText(text);
+        triggerCopied(key);
+        return;
+      } catch (err) {
+        console.warn('Tauri clipboard copy failed, falling back to browser API:', err);
+      }
+    }
+
+    if (navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(text);
+        triggerCopied(key);
+      } catch (fallbackErr) {
+        console.error('Fallback browser clipboard copy failed:', fallbackErr);
+      }
+    } else {
+      console.error('No clipboard API available in this environment.');
+    }
+  };
+
   const handleCopyAll = async () => {
     const groups = buildThemeGroups(messages);
     const sections: string[] = [];
@@ -249,8 +274,7 @@ export default function DiscussionScreen() {
         sections.push(`### ${m.agent_name}\n${m.content}`);
       }
     }
-    await writeText(sections.join('\n\n'));
-    triggerCopied('all');
+    await safeCopyToClipboard(sections.join('\n\n'), 'all');
   };
 
   const handleCopyTheme = async (group: ThemeGroup) => {
@@ -259,8 +283,7 @@ export default function DiscussionScreen() {
       if (m.agent_name === '[会話圧縮]') continue;
       sections.push(`### ${m.agent_name}\n${m.content}`);
     }
-    await writeText(sections.join('\n\n'));
-    triggerCopied(`theme:${group.theme}`);
+    await safeCopyToClipboard(sections.join('\n\n'), `theme:${group.theme}`);
   };
 
   const handleCopyAllSummaries = async () => {
@@ -272,8 +295,7 @@ export default function DiscussionScreen() {
       if (summary) sections.push(`## ${group.theme}\n${summary.content}`);
     }
     if (sections.length === 0) return;
-    await writeText(sections.join('\n\n'));
-    triggerCopied('summaries');
+    await safeCopyToClipboard(sections.join('\n\n'), 'summaries');
   };
 
   const hasSummaries = messages.some(m => m.agent_name === 'Summary');
