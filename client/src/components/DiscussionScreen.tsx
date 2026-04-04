@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus } from '../lib/api';
@@ -248,7 +249,7 @@ export default function DiscussionScreen() {
         sections.push(`### ${m.agent_name}\n${m.content}`);
       }
     }
-    await navigator.clipboard.writeText(sections.join('\n\n'));
+    await writeText(sections.join('\n\n'));
     triggerCopied('all');
   };
 
@@ -258,7 +259,7 @@ export default function DiscussionScreen() {
       if (m.agent_name === '[会話圧縮]') continue;
       sections.push(`### ${m.agent_name}\n${m.content}`);
     }
-    await navigator.clipboard.writeText(sections.join('\n\n'));
+    await writeText(sections.join('\n\n'));
     triggerCopied(`theme:${group.theme}`);
   };
 
@@ -271,7 +272,7 @@ export default function DiscussionScreen() {
       if (summary) sections.push(`## ${group.theme}\n${summary.content}`);
     }
     if (sections.length === 0) return;
-    await navigator.clipboard.writeText(sections.join('\n\n'));
+    await writeText(sections.join('\n\n'));
     triggerCopied('summaries');
   };
 
