@@ -9,6 +9,7 @@
   "patent_content_column": "請求項",
   "patent_date_column": "出願日",
   "available_rag_types": [
-    { "id": "qdrant", "name": "Qdrant (ベクトル検索)", "description": "Qdrantを使ったベクトル類似検索" }
+    { "id": "qdrant", "name": "Qdrant (ベクトル検索)", "description": "Qdrantを使ったベクトル類似検索" },
+    { "id": "dummy_http", "name": "Dummy HTTP (ダミー)", "description": "HTTP通信でダミーのMarkdown結果を取得" }
   ]
 }

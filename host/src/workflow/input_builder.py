@@ -196,14 +196,40 @@ def build_agent_input(
     # ホストに存在しない種別が指定されていた場合はスキップ (不一致は実行時に無視)。
     # ------------------------------------------------------------------
     rag_context = ""
+
+    import logging
+    logger = logging.getLogger("bsapp.host")
+
+    if persona.rag_config:
+        logger.info(f"[RAG DEBUG] persona={persona.name}, enabled={persona.rag_config.enabled}, tag={persona.rag_config.tag}, type={persona.rag_config.rag_type}")
+    else:
+        logger.info(f"[RAG DEBUG] persona={persona.name}, no rag_config")
+
     if persona.rag_config and persona.rag_config.enabled and persona.rag_config.tag:
         rag_type = persona.rag_config.rag_type or "qdrant"
+        
+        logger.info(f"[RAG DEBUG] Start search. persona={persona.name}, tag={persona.rag_config.tag}, type={rag_type}")
+
         if rag_type == "qdrant":
             rag_query = _generate_rag_query(persona, session)
+            logger.info(f"[RAG DEBUG] Qdrant Query: {rag_query}")
             rag_context = rag_manager.search_context(
                 tag=persona.rag_config.tag,
                 query=rag_query,
             )
+            logger.info(f"[RAG DEBUG] Qdrant Result Length: {len(rag_context)}")
+        elif rag_type == "dummy_http":
+            import urllib.request
+            try:
+                # 自身のダミーエンドポイントからMarkdownを取得
+                logger.info("[RAG DEBUG] Requesting dummy HTTP endpoint...")
+                req = urllib.request.Request("http://127.0.0.1:8089/api/dummy_rag")
+                with urllib.request.urlopen(req) as res:
+                    rag_context = res.read().decode('utf-8')
+                logger.info(f"[RAG DEBUG] Dummy HTTP Result Length: {len(rag_context)}")
+            except Exception as e:
+                logger.warning(f"[RAG DEBUG] dummy_http error: {e}")
+                rag_context = f"Dummy HTTP Error: {e}"
         # 将来的に他のRAG種別を追加する場合はここに elif を追加:
         # elif rag_type == "other_rag":
         #     rag_context = other_rag_search(...)

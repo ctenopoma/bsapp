@@ -528,9 +528,9 @@ export default function DiscussionScreen() {
                                   </button>
                                   {isRagOpen && (
                                     <div className="px-4 pb-4 pt-1">
-                                      <pre className="text-xs text-teal-900 whitespace-pre-wrap leading-relaxed font-mono bg-white border border-teal-100 rounded-lg p-3 overflow-x-auto">
-                                        {ragContext}
-                                      </pre>
+                                      <div className="text-xs text-teal-900 whitespace-pre-wrap leading-relaxed bg-white border border-teal-100 rounded-lg p-3 overflow-x-auto prose prose-sm max-w-none prose-teal">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{ragContext}</ReactMarkdown>
+                                      </div>
                                     </div>
                                   )}
                                 </div>

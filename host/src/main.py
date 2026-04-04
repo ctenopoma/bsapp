@@ -183,3 +183,9 @@ app.include_router(helper.router, prefix="/api/helper", tags=["Helper"])
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "BSapp Backend is running."}
+
+from fastapi.responses import PlainTextResponse
+
+@app.get("/api/dummy_rag")
+def dummy_rag():
+    return PlainTextResponse("# ダミーRAG結果\n\nHTTP通信経由で取得したダミーの**Markdown**テキストです。\n\n- アイテムA\n- アイテムB\n\n```python\nprint('Hello RAG')\n```\n")
