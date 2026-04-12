@@ -36,7 +36,6 @@ const DEFAULT_FORM: AppSettings = {
   patent_compress_per_company_prompt: '',
   patent_chunk_analyze_prompt: '',
   patent_chunk_reduce_prompt: '',
-  patent_csv_path: '',
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -189,14 +188,7 @@ export default function SettingsScreen() {
         <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">特許調査設定</h2>
         <p className="text-xs text-gray-500">Patent Research画面の動作設定です。</p>
 
-        <h3 className="text-sm font-semibold text-gray-700 mt-1">CSVファイルパス</h3>
-        <Field label="特許CSVパス" hint="（Discussion実行時の特許分析で使用）">
-          <input className={INPUT_CLS} type="text" value={form.patent_csv_path ?? ''}
-            onChange={e => set('patent_csv_path', e.target.value)}
-            placeholder="例: C:/data/patents.csv" />
-        </Field>
-
-        <h3 className="text-sm font-semibold text-gray-700 mt-3 border-t border-gray-100 pt-3">CSV列名</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mt-1">CSV列名</h3>
         <Field label="企業名列" hint="（出願人など）">
           <input className={INPUT_CLS} type="text" value={form.patent_company_column ?? ''}
             onChange={e => set('patent_company_column', e.target.value)} />

@@ -2,8 +2,6 @@ import logging
 import time
 import urllib.request
 import os
-import csv
-import io
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from typing import Dict, Any, List
@@ -293,27 +291,10 @@ def _run_patent_analysis_for_theme(session: SessionMemory) -> str | None:
     pc = cfg.patent_config
     settings = get_settings()
 
-    # CSVファイルを読み込む（セッション指定 > AppSettings の優先順位）
-    csv_path = session.patent_csv_path or settings.patent_csv_path
-    if not csv_path:
-        logger.warning("[Patent] patent_csv_path が未設定のため特許分析をスキップします")
-        return None
-
-    try:
-        # 文字コードを自動検出して読み込む
-        raw_bytes = open(csv_path, 'rb').read()
-        try:
-            text = raw_bytes.decode('utf-8')
-        except UnicodeDecodeError:
-            text = raw_bytes.decode('shift-jis', errors='replace')
-
-        reader = csv.DictReader(io.StringIO(text))
-        rows = list(reader)
-    except Exception as e:
-        logger.error(f"[Patent] CSVの読み込みに失敗: {e}")
-        return None
-
+    # クライアントがアップロードしたCSV行データを使用
+    rows = session.patent_rows
     if not rows:
+        logger.warning("[Patent] patent_rows が空のため特許分析をスキップします")
         return None
 
     company_col = settings.patent_company_column

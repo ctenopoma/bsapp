@@ -608,7 +608,7 @@ export interface SessionStartRequest {
   pre_info?: string;
   project_flow?: string;
   flow_config?: Record<string, any>;
-  patent_csv_path?: string;
+  patent_rows?: Record<string, string>[];
 }
 
 export interface SessionStartResponse {
@@ -666,7 +666,6 @@ export interface AppSettings {
   patent_compress_per_company_prompt: string;
   patent_chunk_analyze_prompt: string;
   patent_chunk_reduce_prompt: string;
-  patent_csv_path: string;
 }
 
 export interface HealthResponse {

@@ -15,6 +15,57 @@ import { Settings, Play, Plus, Trash2, Save, FolderOpen, FilePlus, Users, ListTo
 import HelperChatWidget from './HelperChatWidget';
 import type { FieldSuggestion, PatentPresetData } from '../types/api';
 
+// CSV パーサー (UTF-8 / Shift-JIS 対応)
+function parseCSV(text: string): Record<string, string>[] {
+  const rows = _parseCSVRaw(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim());
+  const result: Record<string, string>[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    if (cols.every(c => c.trim() === '')) continue;
+    const row: Record<string, string> = {};
+    headers.forEach((h, idx) => { row[h] = (cols[idx] ?? '').trim(); });
+    result.push(row);
+  }
+  return result;
+}
+function _parseCSVRaw(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i += 2; } else { inQuotes = false; i++; } }
+      else { cell += ch; i++; }
+    } else {
+      if (ch === '"') { inQuotes = true; i++; }
+      else if (ch === ',') { row.push(cell); cell = ''; i++; }
+      else if (ch === '\r' && text[i + 1] === '\n') { row.push(cell); cell = ''; rows.push(row); row = []; i += 2; }
+      else if (ch === '\n') { row.push(cell); cell = ''; rows.push(row); row = []; i++; }
+      else { cell += ch; i++; }
+    }
+  }
+  row.push(cell);
+  if (row.length > 1 || row[0] !== '') rows.push(row);
+  return rows;
+}
+async function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buf = e.target?.result as ArrayBuffer;
+      try { resolve(new TextDecoder('utf-8', { fatal: true }).decode(buf)); }
+      catch { try { resolve(new TextDecoder('shift-jis').decode(buf)); } catch { reject(new Error('UTF-8またはShift-JISのCSVを使用してください')); } }
+    };
+    reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 interface ThemeEntry {
   localId: string;
   text: string;
@@ -185,7 +236,10 @@ export default function SetupScreen() {
   const [error, setError] = useState('');
   const [projectFlow, setProjectFlow] = useState('waterfall');
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
-  const [patentCsvPath, setPatentCsvPath] = useState('');
+  const [patentRows, setPatentRows] = useState<Record<string, string>[]>([]);
+  const [patentFileName, setPatentFileName] = useState('');
+  const [patentCsvError, setPatentCsvError] = useState('');
+  const patentFileRef = useRef<HTMLInputElement>(null);
   const [themeTab, setThemeTab] = useState<Record<string, string>>({}); // localId → active tab
   const [flowRoleTab, setFlowRoleTab] = useState(''); // active flow role tab
 
@@ -492,7 +546,7 @@ export default function SetupScreen() {
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined, patent_csv_path: patentCsvPath || undefined });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined, patent_rows: patentRows.length > 0 ? patentRows : undefined });
       const sessionId = res.session_id;
       // LLMにタイトルを生成させる（失敗時はフォールバック）
       let title: string;
@@ -803,13 +857,40 @@ export default function SetupScreen() {
           })()}
         </div>
         <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">特許分析CSVパス <span className="text-gray-400 font-normal text-xs">（テーマに特許分析を設定している場合に使用）</span></label>
-          <input
-            type="text"
-            value={patentCsvPath}
-            onChange={e => setPatentCsvPath(e.target.value)}
-            placeholder="例: C:/data/patents.csv（空の場合はSettings画面の設定を使用）"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          <label className="block text-sm font-bold text-gray-700 mb-1">特許分析CSV <span className="text-gray-400 font-normal text-xs">（テーマに特許分析を設定している場合に使用）</span></label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => patentFileRef.current?.click()}
+              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
+            >
+              <FilePlus size={14} />
+              CSVを選択
+            </button>
+            {patentFileName && (
+              <span className="text-sm text-gray-600">{patentFileName} <span className="text-xs text-gray-400">({patentRows.length}行)</span></span>
+            )}
+            {patentFileName && (
+              <button type="button" onClick={() => { setPatentRows([]); setPatentFileName(''); setPatentCsvError(''); if (patentFileRef.current) patentFileRef.current.value = ''; }}
+                className="text-xs text-red-400 hover:text-red-600">クリア</button>
+            )}
+          </div>
+          {patentCsvError && <p className="text-xs text-red-500 mt-1">{patentCsvError}</p>}
+          <input ref={patentFileRef} type="file" accept=".csv" className="hidden"
+            onChange={async e => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setPatentCsvError('');
+              try {
+                const text = await readFileAsText(file);
+                const rows = parseCSV(text);
+                if (rows.length === 0) { setPatentCsvError('CSVにデータがありません'); return; }
+                setPatentRows(rows);
+                setPatentFileName(file.name);
+              } catch (err: any) {
+                setPatentCsvError(err.message ?? 'CSVの読み込みに失敗しました');
+              }
+            }}
           />
         </div>
       </div>
@@ -1604,7 +1685,7 @@ export default function SetupScreen() {
                                     </div>
 
                                     <p className="text-xs text-gray-400">
-                                      ※ CSVパスはセッション設定の「特許分析CSVパス」で指定してください。未入力の場合はSettings画面の patent_csv_path が使用されます。
+                                      ※ 特許CSVはセッション設定の「特許分析CSV」でアップロードしてください。
                                     </p>
                                   </div>
                                 );

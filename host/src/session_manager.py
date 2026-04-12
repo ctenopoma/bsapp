@@ -24,8 +24,8 @@ class SessionMemory:
         # マクロフロー設定
         self.project_flow: str = request.project_flow
         self.flow_config: dict = request.flow_config or {}
-        # 特許CSVパス（空の場合はAppSettings.patent_csv_pathを使用）
-        self.patent_csv_path: str = request.patent_csv_path
+        # クライアントがアップロードしたCSVの行データ
+        self.patent_rows: List[dict] = request.patent_rows
         # 特許分析結果キャッシュ: theme_index → report text
         self.patent_context_cache: dict = {}
 

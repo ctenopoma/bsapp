@@ -103,7 +103,7 @@ class SessionStartRequest(BaseModel):
     pre_info: str = ""           # 事前情報 (ファイル内容等)
     project_flow: str = ""       # マクロフロータイプ (空=waterfall)
     flow_config: Optional[dict] = None  # フロー固有の設定
-    patent_csv_path: str = ""    # 特許CSVファイルパス（空の場合はAppSettings.patent_csv_pathを使用）
+    patent_rows: List[dict] = Field(default_factory=list)  # クライアントがアップロードしたCSVの行データ
 
 
 class SessionStartResponse(BaseModel):
@@ -180,8 +180,6 @@ class AppSettings(BaseModel):
     # チャンク分割Reduce プロンプト
     patent_chunk_analyze_prompt: str = ""  # Map フェーズ: 各チャンクの分析プロンプト (空=デフォルト)
     patent_chunk_reduce_prompt: str = ""   # Reduce フェーズ: 中間レポート統合プロンプト (空=デフォルト)
-    # Discussion内の特許分析用CSVパス（空=未設定）
-    patent_csv_path: str = ""
 
 
 # -------------------------------------------------------------------
