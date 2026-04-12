@@ -561,6 +561,7 @@ dependencies = [
     { name = "python-jose", extra = ["cryptography"] },
     { name = "qdrant-client" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "tiktoken" },
     { name = "uvicorn" },
 ]
 
@@ -577,6 +578,7 @@ requires-dist = [
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
     { name = "qdrant-client", specifier = ">=1.17.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+    { name = "tiktoken", specifier = ">=0.9" },
     { name = "uvicorn", specifier = ">=0.41.0" },
 ]
 

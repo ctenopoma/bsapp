@@ -24,6 +24,10 @@ class SessionMemory:
         # マクロフロー設定
         self.project_flow: str = request.project_flow
         self.flow_config: dict = request.flow_config or {}
+        # 特許CSVパス（空の場合はAppSettings.patent_csv_pathを使用）
+        self.patent_csv_path: str = request.patent_csv_path
+        # 特許分析結果キャッシュ: theme_index → report text
+        self.patent_context_cache: dict = {}
 
     @property
     def current_theme_config(self) -> ThemeConfig | None:

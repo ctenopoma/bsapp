@@ -34,6 +34,20 @@ export interface MessageHistory {
   agent_name: string;
   content: string;
   turn_order: number;
+  rag_context?: string;
+  patent_context?: string;
+}
+
+export interface PatentConfig {
+  preset_id?: string;        // PatentPresetのID（空=直接設定を使用）
+  system_prompt?: string;
+  output_format?: string;
+  strategy?: string;         // 'bulk' | 'bulk_per_patent' | 'bulk_per_company' | 'chunked'
+  chunk_size?: number;
+  max_companies?: number;
+  max_total_patents?: number;
+  patents_per_company?: number;
+  pre_info_sources?: string[]; // 事前情報ソース: "summary:N"=テーマN要約, "messages:N"=テーマN全発言
 }
 
 export interface ThemeConfig {
@@ -49,6 +63,7 @@ export interface ThemeConfig {
   task_assignment?: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
   persona_task_map?: Record<string, string>; // fixed時のペルソナID→タスクIDマッピング
   summarize?: boolean; // テーマ終了後に要約を生成するか（省略時=true）
+  patent_config?: PatentConfig; // 特許分析設定（テーマ前に特許分析を実行してpre_infoに追加）
 }
 
 // テーマ内ストラテジーの定義
@@ -593,6 +608,7 @@ export interface SessionStartRequest {
   pre_info?: string;
   project_flow?: string;
   flow_config?: Record<string, any>;
+  patent_csv_path?: string;
 }
 
 export interface SessionStartResponse {
@@ -620,6 +636,7 @@ export interface TurnStatusResponse {
   all_themes_done?: boolean;
   history_compressed?: boolean;
   rag_context?: string;
+  patent_context?: string;
   error_msg?: string;
 }
 
@@ -644,6 +661,12 @@ export interface AppSettings {
   patent_company_column: string;
   patent_content_column: string;
   patent_date_column: string;
+  patent_max_prompt_tokens: number;
+  patent_compress_per_patent_prompt: string;
+  patent_compress_per_company_prompt: string;
+  patent_chunk_analyze_prompt: string;
+  patent_chunk_reduce_prompt: string;
+  patent_csv_path: string;
 }
 
 export interface HealthResponse {
@@ -734,6 +757,19 @@ export interface RagSearchResponse {
   error?: string;
 }
 
+// 特許調査プリセット
+export interface PatentPresetData {
+  id: string;
+  name: string;
+  system_prompt: string;
+  output_format: string;
+  strategy: string;
+  chunk_size: number;
+  max_companies: number;
+  max_total_patents: number;
+  patents_per_company: number;
+}
+
 // 特許調査 API
 export interface PatentItem {
   content: string;
@@ -745,6 +781,7 @@ export interface PatentAnalyzeRequest {
   patents: PatentItem[];
   system_prompt: string;
   output_format: string;
+  max_prompt_tokens?: number;
 }
 
 export interface PatentAnalyzeResponse {
@@ -759,6 +796,37 @@ export interface PatentSummaryRequest {
 
 export interface PatentSummaryResponse {
   summary: string;
+}
+
+export type PatentCompressMode = 'per_patent' | 'per_company';
+
+export interface PatentCompressRequest {
+  patents: PatentItem[];
+  mode: PatentCompressMode;
+  company?: string;
+  compress_prompt?: string;
+}
+
+export interface PatentCompressResponse {
+  patents: PatentItem[];
+  original_count: number;
+  compressed_count: number;
+}
+
+export interface PatentChunkedAnalyzeRequest {
+  company: string;
+  patents: PatentItem[];
+  system_prompt: string;
+  output_format: string;
+  chunk_size?: number;
+  max_prompt_tokens?: number;
+}
+
+export interface PatentChunkedAnalyzeResponse {
+  company: string;
+  report: string;
+  chunk_count: number;
+  intermediate_reports: string[];
 }
 
 // ヘルパーエージェント API (ペルソナ・タスク入力支援)

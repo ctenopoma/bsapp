@@ -4,7 +4,7 @@
  * All data is now stored in PostgreSQL on the server.
  * The API functions mirror the same signatures as the old SQLite helpers.
  */
-import { Persona, TaskModel, MessageHistory } from '../types/api';
+import { Persona, TaskModel, MessageHistory, PatentPresetData } from '../types/api';
 import { request as _req } from './api-internal';
 import { generateUUID } from './uuid';
 
@@ -25,6 +25,8 @@ export interface ThemeEntry {
 export interface SessionData {
   id: string;
   title: string;
+  common_theme: string;
+  pre_info: string;
   created_at: string;
 }
 
@@ -233,11 +235,15 @@ export async function deleteTaskPreset(id: string): Promise<void> {
 // Sessions & Messages
 // ─────────────────────────────────────────────
 
-export async function createSession(id: string, title: string): Promise<void> {
+export async function createSession(id: string, title: string, commonTheme: string = "", preInfo: string = ""): Promise<void> {
   await _req('/api/data/sessions', {
     method: 'POST',
-    body: JSON.stringify({ id, title, created_at: new Date().toISOString() }),
+    body: JSON.stringify({ id, title, common_theme: commonTheme, pre_info: preInfo, created_at: new Date().toISOString() }),
   });
+}
+
+export async function getSession(id: string): Promise<SessionData> {
+  return _req<SessionData>(`/api/data/sessions/${id}`);
 }
 
 export async function updateSessionTitle(id: string, title: string): Promise<void> {
@@ -265,16 +271,21 @@ export async function addMessage(
   agentName: string,
   content: string,
   turnOrder: number,
+  ragContext?: string,
+  patentContext?: string
 ): Promise<void> {
+  const reqBody: any = {
+    id: generateUUID(),
+    theme,
+    agent_name: agentName,
+    content,
+    turn_order: turnOrder,
+    rag_context: ragContext,
+    patent_context: patentContext,
+  };
   await _req(`/api/data/sessions/${sessionId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({
-      id: generateUUID(),
-      theme,
-      agent_name: agentName,
-      content,
-      turn_order: turnOrder,
-    }),
+    body: JSON.stringify(reqBody),
   });
 }
 
@@ -323,4 +334,26 @@ export async function savePatentSummary(sessionId: string, summary: string): Pro
 export async function getPatentSummary(sessionId: string): Promise<string> {
   const r = await _req<{ summary: string }>(`/api/data/patent-sessions/${sessionId}/summary`);
   return r.summary;
+}
+
+// ─────────────────────────────────────────────
+// Patent Presets
+// ─────────────────────────────────────────────
+
+export type { PatentPresetData };
+
+export async function getPatentPresets(): Promise<PatentPresetData[]> {
+  return _req<PatentPresetData[]>('/api/data/patent-presets');
+}
+
+export async function createPatentPreset(preset: PatentPresetData): Promise<void> {
+  await _req('/api/data/patent-presets', { method: 'POST', body: JSON.stringify(preset) });
+}
+
+export async function updatePatentPreset(preset: PatentPresetData): Promise<void> {
+  await _req(`/api/data/patent-presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
+}
+
+export async function deletePatentPreset(id: string): Promise<void> {
+  await _req(`/api/data/patent-presets/${id}`, { method: 'DELETE' });
 }

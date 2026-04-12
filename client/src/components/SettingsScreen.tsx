@@ -31,6 +31,12 @@ const DEFAULT_FORM: AppSettings = {
   patent_company_column: '出願人',
   patent_content_column: '発明の名称',
   patent_date_column: '出願日',
+  patent_max_prompt_tokens: 0,
+  patent_compress_per_patent_prompt: '',
+  patent_compress_per_company_prompt: '',
+  patent_chunk_analyze_prompt: '',
+  patent_chunk_reduce_prompt: '',
+  patent_csv_path: '',
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -99,7 +105,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto flex flex-col gap-8 overflow-y-auto">
+    <div className="p-8 w-full flex flex-col gap-8 overflow-y-auto">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
           <SlidersHorizontal className="text-blue-600" />
@@ -180,8 +186,17 @@ export default function SettingsScreen() {
 
       {/* 特許調査設定 */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">特許調査 CSV列名設定</h2>
-        <p className="text-xs text-gray-500">Patent Research画面で使用するCSVの列名を設定します。</p>
+        <h2 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2">特許調査設定</h2>
+        <p className="text-xs text-gray-500">Patent Research画面の動作設定です。</p>
+
+        <h3 className="text-sm font-semibold text-gray-700 mt-1">CSVファイルパス</h3>
+        <Field label="特許CSVパス" hint="（Discussion実行時の特許分析で使用）">
+          <input className={INPUT_CLS} type="text" value={form.patent_csv_path ?? ''}
+            onChange={e => set('patent_csv_path', e.target.value)}
+            placeholder="例: C:/data/patents.csv" />
+        </Field>
+
+        <h3 className="text-sm font-semibold text-gray-700 mt-3 border-t border-gray-100 pt-3">CSV列名</h3>
         <Field label="企業名列" hint="（出願人など）">
           <input className={INPUT_CLS} type="text" value={form.patent_company_column ?? ''}
             onChange={e => set('patent_company_column', e.target.value)} />
@@ -190,9 +205,58 @@ export default function SettingsScreen() {
           <input className={INPUT_CLS} type="text" value={form.patent_content_column ?? ''}
             onChange={e => set('patent_content_column', e.target.value)} />
         </Field>
-        <Field label="日付列" hint="（出願日など / 最新10件の抽出に使用）">
+        <Field label="日付列" hint="（出願日など / 最新N件の抽出に使用）">
           <input className={INPUT_CLS} type="text" value={form.patent_date_column ?? ''}
             onChange={e => set('patent_date_column', e.target.value)} />
+        </Field>
+
+        <h3 className="text-sm font-semibold text-gray-700 mt-3 border-t border-gray-100 pt-3">トークン上限</h3>
+        <p className="text-xs text-gray-500">
+          分析APIに渡すプロンプトのトークン数上限です。LLMのコンテキスト長に合わせて設定してください（0=無制限）。
+          超えた場合はエラーを返します。
+        </p>
+        <Field label="プロンプト最大トークン数" hint="（0=無制限）">
+          <input className={INPUT_CLS} type="number" min="0"
+            value={form.patent_max_prompt_tokens ?? 0}
+            onChange={e => set('patent_max_prompt_tokens', parseInt(e.target.value) || 0)} />
+        </Field>
+
+        <h3 className="text-sm font-semibold text-gray-700 mt-3 border-t border-gray-100 pt-3">圧縮プロンプト</h3>
+        <p className="text-xs text-gray-500">
+          特許を分析前にLLMで圧縮する際のプロンプトです。空の場合はデフォルトプロンプトを使用します。<br />
+          <code className="bg-gray-100 px-1 rounded">per_patent</code> 用: <code className="bg-gray-100 px-1 rounded">{'{patent}'}</code> が特許テキストに置換されます。<br />
+          <code className="bg-gray-100 px-1 rounded">per_company</code> 用: <code className="bg-gray-100 px-1 rounded">{'{company}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{patents}'}</code> が置換されます。
+        </p>
+        <Field label="特許個別要約プロンプト（per_patent）">
+          <textarea className={TEXTAREA_CLS} rows={3}
+            value={form.patent_compress_per_patent_prompt ?? ''}
+            onChange={e => set('patent_compress_per_patent_prompt', e.target.value)}
+            placeholder="（空の場合はデフォルト: 特許を1〜2文に要約）" />
+        </Field>
+        <Field label="企業別まとめ要約プロンプト（per_company）">
+          <textarea className={TEXTAREA_CLS} rows={3}
+            value={form.patent_compress_per_company_prompt ?? ''}
+            onChange={e => set('patent_compress_per_company_prompt', e.target.value)}
+            placeholder="（空の場合はデフォルト: 企業の特許リストを統合して数文にまとめる）" />
+        </Field>
+
+        <h3 className="text-sm font-semibold text-gray-700 mt-3 border-t border-gray-100 pt-3">チャンク分割Reduce プロンプト</h3>
+        <p className="text-xs text-gray-500">
+          チャンク分割Reduceモード使用時のプロンプトです。空の場合はデフォルトを使用します。<br />
+          <strong>Mapプロンプト</strong>（各チャンク分析）: <code className="bg-gray-100 px-1 rounded">{'{system_prompt}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{company}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{chunk_no}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{total_chunks}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{count}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{patents}'}</code><br />
+          <strong>Reduceプロンプト</strong>（統合）: <code className="bg-gray-100 px-1 rounded">{'{system_prompt}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{company}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{chunk_count}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{intermediate_reports}'}</code>、<code className="bg-gray-100 px-1 rounded">{'{output_format}'}</code>
+        </p>
+        <Field label="Mapプロンプト（各チャンク分析）">
+          <textarea className={TEXTAREA_CLS} rows={4}
+            value={form.patent_chunk_analyze_prompt ?? ''}
+            onChange={e => set('patent_chunk_analyze_prompt', e.target.value)}
+            placeholder="（空の場合はデフォルト: チャンク内の技術的特徴・傾向を分析）" />
+        </Field>
+        <Field label="Reduceプロンプト（中間レポート統合）">
+          <textarea className={TEXTAREA_CLS} rows={4}
+            value={form.patent_chunk_reduce_prompt ?? ''}
+            onChange={e => set('patent_chunk_reduce_prompt', e.target.value)}
+            placeholder="（空の場合はデフォルト: 全チャンク結果を統合して最終レポート生成）" />
         </Field>
       </section>
 

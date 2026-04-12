@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { getMessages, addMessage, getSessionConfig } from '../lib/server-db';
+import { getMessages, addMessage, getSession } from '../lib/server-db';
 import { MessageHistory } from '../types/api';
 import { apiStartTurn, apiGetTurnStatus, apiStartSummarize, apiGetSummarizeStatus } from '../lib/api';
-import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList, Database } from 'lucide-react';
+import { Loader2, Play, FileText, CheckCircle2, Copy, Check, Minimize2, ChevronDown, ChevronRight, ClipboardList, Database, FlaskConical } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -51,20 +51,38 @@ export default function DiscussionScreen() {
   const [currentAction, setCurrentAction] = useState<string>('');
   const [copiedState, setCopiedState] = useState<null | string>(null);
   const [commonTheme, setCommonTheme] = useState('');
+  const [preInfo, setPreInfo] = useState('');
 
   const [openThemes, setOpenThemes] = useState<Set<string>>(new Set());
   const [openMessages, setOpenMessages] = useState<Set<string>>(new Set());
   const [openThemeTexts, setOpenThemeTexts] = useState<Set<string>>(new Set());
   const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
   const [openRagContexts, setOpenRagContexts] = useState<Set<string>>(new Set());
-  const [ragContextMap, setRagContextMap] = useState<Map<string, string>>(new Map());
+  const [openPatentContexts, setOpenPatentContexts] = useState<Set<string>>(new Set());
+  // テーマ単位の特許分析結果（theme → patent_context）
+  const [themePatentContexts, setThemePatentContexts] = useState<Record<string, string>>({});
   const initializedRef = useRef(false);
 
   useEffect(() => {
     if (sessionId) {
-      getMessages(sessionId).then(setMessages).catch(console.error);
+      getMessages(sessionId).then(msgs => {
+        setMessages(msgs);
+        // 履歴からテーマ単位のpatent_contextを復元
+        const patentMap: Record<string, string> = {};
+        for (const m of msgs) {
+          if (m.patent_context && !patentMap[m.theme]) {
+            patentMap[m.theme] = m.patent_context;
+          }
+        }
+        if (Object.keys(patentMap).length > 0) {
+          setThemePatentContexts(patentMap);
+        }
+      }).catch(console.error);
+      getSession(sessionId).then(sess => {
+        setCommonTheme(sess.common_theme || '');
+        setPreInfo(sess.pre_info || '');
+      }).catch(console.error);
     }
-    getSessionConfig('common_theme').then(setCommonTheme).catch(console.error);
   }, [sessionId]);
 
   useEffect(() => {
@@ -133,6 +151,14 @@ export default function DiscussionScreen() {
     });
   };
 
+  const togglePatentContext = (theme: string) => {
+    setOpenPatentContexts(prev => {
+      const next = new Set(prev);
+      if (next.has(theme)) next.delete(theme); else next.add(theme);
+      return next;
+    });
+  };
+
   const handleStart = async () => {
     if (!sessionId) return;
     abortRef.current = false;
@@ -158,20 +184,18 @@ export default function DiscussionScreen() {
             }
             isThemeEnd = turnRes.is_theme_end ?? false;
             theme = turnRes.theme || 'Theme';
+            // 特許分析結果をテーマ単位で保存（最初のターンのみ）
+            if (turnRes.patent_context) {
+              setThemePatentContexts(prev => ({ ...prev, [theme]: turnRes.patent_context! }));
+            }
             if (turnRes.agent_name && turnRes.message) {
               const current = await getMessages(sessionId);
               if (turnRes.history_compressed) {
                 await addMessage(sessionId, theme, '[会話圧縮]', '会話履歴が長くなったため、古い部分を要約圧縮しました。', current.length);
               }
               const afterCompress = turnRes.history_compressed ? await getMessages(sessionId) : current;
-              await addMessage(sessionId, theme, turnRes.agent_name, turnRes.message, afterCompress.length);
+              await addMessage(sessionId, theme, turnRes.agent_name, turnRes.message, afterCompress.length, turnRes.rag_context, turnRes.patent_context);
               const updated = await getMessages(sessionId);
-              if (turnRes.rag_context) {
-                const newMsg = updated[updated.length - 1];
-                if (newMsg) {
-                  setRagContextMap(prev => new Map(prev).set(newMsg.id, turnRes.rag_context!));
-                }
-              }
               setMessages(updated);
             }
             break;
@@ -266,22 +290,38 @@ export default function DiscussionScreen() {
   const handleCopyAll = async () => {
     const groups = buildThemeGroups(messages);
     const sections: string[] = [];
-    if (commonTheme) sections.push(`# ${commonTheme}`);
+    if (commonTheme) sections.push(`# 共通テーマ\n${commonTheme}`);
+    if (preInfo) sections.push(`## 事前情報\n${preInfo}`);
     for (const group of groups) {
-      sections.push(`## ${group.theme}`);
+      if (sections.length > 0) sections.push(`---`);
+      sections.push(`## テーマ: ${group.theme}`);
+      if (themePatentContexts[group.theme]) {
+        sections.push(`### 特許分析結果\n${themePatentContexts[group.theme]}`);
+      }
       for (const m of group.messages) {
         if (m.agent_name === '[会話圧縮]') continue;
-        sections.push(`### ${m.agent_name}\n${m.content}`);
+        if (m.agent_name === 'Summary') {
+          sections.push(`### 要約\n${m.content}`);
+        } else {
+          sections.push(`### ${m.agent_name}\n${m.content}`);
+        }
       }
     }
     await safeCopyToClipboard(sections.join('\n\n'), 'all');
   };
 
   const handleCopyTheme = async (group: ThemeGroup) => {
-    const sections: string[] = [`## ${group.theme}`];
+    const sections: string[] = [`## テーマ: ${group.theme}`];
+    if (themePatentContexts[group.theme]) {
+      sections.push(`### 特許分析結果\n${themePatentContexts[group.theme]}`);
+    }
     for (const m of group.messages) {
       if (m.agent_name === '[会話圧縮]') continue;
-      sections.push(`### ${m.agent_name}\n${m.content}`);
+      if (m.agent_name === 'Summary') {
+        sections.push(`### 要約\n${m.content}`);
+      } else {
+        sections.push(`### ${m.agent_name}\n${m.content}`);
+      }
     }
     await safeCopyToClipboard(sections.join('\n\n'), `theme:${group.theme}`);
   };
@@ -289,10 +329,16 @@ export default function DiscussionScreen() {
   const handleCopyAllSummaries = async () => {
     const groups = buildThemeGroups(messages);
     const sections: string[] = [];
-    if (commonTheme) sections.push(`# ${commonTheme}`);
+    if (commonTheme) sections.push(`# 共通テーマ\n${commonTheme}`);
+    if (preInfo) sections.push(`## 事前情報\n${preInfo}`);
+    let firstTheme = true;
     for (const group of groups) {
       const summary = group.messages.find(m => m.agent_name === 'Summary');
-      if (summary) sections.push(`## ${group.theme}\n${summary.content}`);
+      if (summary) {
+        if (!firstTheme || sections.length > 0) sections.push(`---`);
+        sections.push(`## テーマ: ${group.theme}\n\n### 要約\n${summary.content}`);
+        firstTheme = false;
+      }
     }
     if (sections.length === 0) return;
     await safeCopyToClipboard(sections.join('\n\n'), 'summaries');
@@ -365,7 +411,7 @@ export default function DiscussionScreen() {
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 scroll-smooth">
-        <div className="max-w-4xl mx-auto flex flex-col gap-4 pb-12">
+        <div className="w-full flex flex-col gap-4 pb-12">
           {messages.length === 0 && status === 'idle' && (
             <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300">
               <p className="text-lg">No messages yet.</p>
@@ -435,6 +481,46 @@ export default function DiscussionScreen() {
                 {/* テーマ本文 */}
                 {isThemeOpen && (
                   <div className="flex flex-col gap-0">
+                    {/* 特許分析結果（テーマ単位で表示） */}
+                    {themePatentContexts[group.theme] && (() => {
+                      const patentCtx = themePatentContexts[group.theme];
+                      const isPatentOpen = openPatentContexts.has(group.theme);
+                      return (
+                        <div className="mx-5 mt-4 bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => togglePatentContext(group.theme)}
+                            className="w-full flex items-center gap-2 px-5 py-3 text-purple-800 font-bold hover:bg-purple-100 transition-colors"
+                          >
+                            {isPatentOpen
+                              ? <ChevronDown size={16} className="shrink-0" />
+                              : <ChevronRight size={16} className="shrink-0" />}
+                            <FlaskConical size={16} className="shrink-0" />
+                            <span>特許分析結果</span>
+                            <span className="ml-auto text-xs text-purple-400 font-normal">
+                              {patentCtx.length.toLocaleString()} 文字
+                            </span>
+                            <button
+                              onClick={e => { e.stopPropagation(); safeCopyToClipboard(patentCtx, `patent:${group.theme}`); }}
+                              className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors border ${
+                                copiedState === `patent:${group.theme}`
+                                  ? 'bg-green-100 text-green-700 border-green-300'
+                                  : 'bg-white text-purple-600 border-purple-200 hover:bg-purple-100'
+                              }`}
+                            >
+                              {copiedState === `patent:${group.theme}` ? <Check size={11} /> : <Copy size={11} />}
+                              {copiedState === `patent:${group.theme}` ? 'コピー済' : 'コピー'}
+                            </button>
+                          </button>
+                          {isPatentOpen && (
+                            <div className="px-5 pb-5 pt-1">
+                              <div className="prose prose-sm prose-purple max-w-none">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{patentCtx}</ReactMarkdown>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {group.messages.map((m) => {
                       if (m.agent_name === '[会話圧縮]') {
                         return (
@@ -474,7 +560,7 @@ export default function DiscussionScreen() {
                       const isMsgOpen = openMessages.has(m.id);
                       const preview = m.content.replace(/\n/g, ' ').slice(0, 80);
                       const hasMore = m.content.length > 80;
-                      const ragContext = ragContextMap.get(m.id);
+                      const ragContext = m.rag_context;
                       const isRagOpen = openRagContexts.has(m.id);
 
                       return (

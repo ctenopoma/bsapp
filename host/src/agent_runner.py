@@ -2,12 +2,14 @@ import logging
 import time
 import urllib.request
 import os
+import csv
+import io
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from .session_manager import session_manager, SessionMemory
-from .models import MessageHistory, ThemeSummary, FullSessionResult
+from .models import MessageHistory, ThemeSummary, FullSessionResult, PatentItem, PatentAnalyzeRequest, PatentCompressRequest, PatentChunkedAnalyzeRequest
 from .app_settings import get_settings, get_llm_config
 import uuid as _uuid
 from .workflow import (
@@ -17,6 +19,7 @@ from .workflow import (
     run_full_session,
     summarize_theme,
 )
+from .workflow.patent import analyze_company, analyze_chunked, compress_patents
 
 logger = logging.getLogger("bsapp.llm")
 
@@ -211,8 +214,16 @@ class AgentRunner:
             if not active:
                 raise ValueError("No active personas for current theme")
 
+            # テーマ最初のターンで特許分析を実行（patent_configが設定されている場合）
+            patent_context: str | None = None
+            if session.turn_count_in_theme == 0:
+                try:
+                    patent_context = _run_patent_analysis_for_theme(session)
+                except Exception as pe:
+                    logger.error(f"[Patent] テーマ開始時の特許分析に失敗: {pe}")
+
             persona = select_persona(active, session)
-            agent_input = build_agent_input(session, persona)
+            agent_input = build_agent_input(session, persona, patent_context=patent_context)
             message = self.run_agent(agent_input)
 
             session.history.append(MessageHistory(
@@ -233,6 +244,7 @@ class AgentRunner:
                 "is_theme_end": is_theme_end,
                 "history_compressed": agent_input.history_compressed,
                 "rag_context": agent_input.rag_context or None,
+                "patent_context": patent_context,
             }
 
         except Exception as e:
@@ -259,6 +271,190 @@ class AgentRunner:
 
         except Exception as e:
             job_statuses[job_id] = {"status": "error", "error_msg": str(e)}
+
+
+def _run_patent_analysis_for_theme(session: SessionMemory) -> str | None:
+    """テーマのpatent_configに従って特許分析を実行し、レポートを返す。
+
+    - セッションのpatent_context_cacheにキャッシュ済みであればキャッシュから返す。
+    - patent_configがNullまたは未設定であればNoneを返す。
+    - CSVパスが未設定または読み込みに失敗した場合もNoneを返す。
+    """
+    theme_index = session.current_theme_index
+
+    # キャッシュチェック
+    if theme_index in session.patent_context_cache:
+        return session.patent_context_cache[theme_index]
+
+    cfg = session.current_theme_config
+    if cfg is None or cfg.patent_config is None:
+        return None
+
+    pc = cfg.patent_config
+    settings = get_settings()
+
+    # CSVファイルを読み込む（セッション指定 > AppSettings の優先順位）
+    csv_path = session.patent_csv_path or settings.patent_csv_path
+    if not csv_path:
+        logger.warning("[Patent] patent_csv_path が未設定のため特許分析をスキップします")
+        return None
+
+    try:
+        # 文字コードを自動検出して読み込む
+        raw_bytes = open(csv_path, 'rb').read()
+        try:
+            text = raw_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            text = raw_bytes.decode('shift-jis', errors='replace')
+
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
+    except Exception as e:
+        logger.error(f"[Patent] CSVの読み込みに失敗: {e}")
+        return None
+
+    if not rows:
+        return None
+
+    company_col = settings.patent_company_column
+    content_col = settings.patent_content_column
+    date_col = settings.patent_date_column
+
+    # pre_info_sourcesから事前情報を構築
+    pre_info_parts: List[str] = []
+    for source in (pc.pre_info_sources or []):
+        if source.startswith("summary:"):
+            try:
+                n = int(source.split(":")[1]) - 1
+                if 0 <= n < len(session.summaries):
+                    s = session.summaries[n]
+                    pre_info_parts.append(f"[テーマ{n+1}: {s['theme']}の要約]\n{s['summary']}")
+            except (ValueError, IndexError):
+                pass
+        elif source.startswith("messages:"):
+            try:
+                n = int(source.split(":")[1]) - 1
+                theme_n_theme = session.themes[n].theme if n < len(session.themes) else ""
+                theme_msgs = [m for m in session.history if m.theme == theme_n_theme and m.agent_name not in ('Summary', '[会話圧縮]')]
+                if theme_msgs:
+                    msgs_text = "\n\n".join(f"{m.agent_name}: {m.content}" for m in theme_msgs)
+                    pre_info_parts.append(f"[テーマ{n+1}: {theme_n_theme}の発言]\n{msgs_text}")
+            except (ValueError, IndexError):
+                pass
+
+    # システムプロンプトに事前情報を追加
+    system_prompt = pc.system_prompt or ""
+    if pre_info_parts:
+        system_prompt = "\n\n".join(pre_info_parts) + ("\n\n" + system_prompt if system_prompt else "")
+
+    output_format = pc.output_format or ""
+    strategy = pc.strategy or "bulk"
+    max_companies = pc.max_companies or 20
+    max_total_patents = pc.max_total_patents or 100
+    patents_per_company = pc.patents_per_company or 10
+    chunk_size = pc.chunk_size or 20
+
+    # 企業別に特許を収集
+    from collections import defaultdict
+    company_patents: dict = defaultdict(list)
+    for row in rows:
+        company = (row.get(company_col) or "").strip()
+        content = (row.get(content_col) or "").strip()
+        date = (row.get(date_col) or "").strip()
+        if company and content:
+            company_patents[company].append(PatentItem(content=content, date=date))
+
+    if not company_patents:
+        return None
+
+    # 企業数・特許数の上限適用
+    sorted_companies = sorted(company_patents.keys(), key=lambda c: len(company_patents[c]), reverse=True)
+    sorted_companies = sorted_companies[:max_companies]
+
+    patents_by_company: List[dict] = []
+    total = 0
+    for company in sorted_companies:
+        patents = sorted(company_patents[company], key=lambda p: p.date, reverse=True)[:patents_per_company]
+        if total + len(patents) > max_total_patents:
+            patents = patents[:max_total_patents - total]
+        patents_by_company.append({"company": company, "patents": patents})
+        total += len(patents)
+        if total >= max_total_patents:
+            break
+
+    if not patents_by_company:
+        return None
+
+    llm = create_llm()
+    company_label = "・".join(p["company"] for p in patents_by_company[:3])
+    if len(patents_by_company) > 3:
+        company_label += "..."
+
+    try:
+        if strategy == "chunked":
+            all_patents = [
+                PatentItem(content=f"[{p['company']}] {pt.content}", date=pt.date)
+                for p in patents_by_company for pt in p["patents"]
+            ]
+            req = PatentChunkedAnalyzeRequest(
+                company=company_label,
+                patents=all_patents,
+                system_prompt=system_prompt,
+                output_format=output_format,
+                chunk_size=chunk_size,
+                max_prompt_tokens=settings.patent_max_prompt_tokens,
+            )
+            result = analyze_chunked(req, llm, max_prompt_tokens=settings.patent_max_prompt_tokens,
+                                     chunk_analyze_prompt=settings.patent_chunk_analyze_prompt,
+                                     chunk_reduce_prompt=settings.patent_chunk_reduce_prompt)
+            report = result.report
+        else:
+            # 圧縮モード
+            compress_mode = None
+            if strategy == "bulk_per_patent":
+                compress_mode = "per_patent"
+            elif strategy == "bulk_per_company":
+                compress_mode = "per_company"
+
+            all_patents: List[PatentItem] = []
+            for p in patents_by_company:
+                if compress_mode:
+                    comp_req = PatentCompressRequest(
+                        patents=p["patents"],
+                        mode=compress_mode,
+                        company=p["company"],
+                    )
+                    if compress_mode == "per_patent":
+                        comp_req = comp_req.model_copy(update={"compress_prompt": settings.patent_compress_per_patent_prompt})
+                    else:
+                        comp_req = comp_req.model_copy(update={"compress_prompt": settings.patent_compress_per_company_prompt})
+                    try:
+                        comp_result = compress_patents(comp_req, llm)
+                        for pt in comp_result.patents:
+                            all_patents.append(PatentItem(content=f"[{p['company']}] {pt.content}", date=pt.date))
+                    except Exception:
+                        for pt in p["patents"]:
+                            all_patents.append(PatentItem(content=f"[{p['company']}] {pt.content}", date=pt.date))
+                else:
+                    for pt in p["patents"]:
+                        all_patents.append(PatentItem(content=f"[{p['company']}] {pt.content}", date=pt.date))
+
+            req = PatentAnalyzeRequest(
+                company=company_label,
+                patents=all_patents,
+                system_prompt=system_prompt,
+                output_format=output_format,
+                max_prompt_tokens=settings.patent_max_prompt_tokens,
+            )
+            report = analyze_company(req, llm, max_prompt_tokens=settings.patent_max_prompt_tokens)
+
+        # キャッシュに保存
+        session.patent_context_cache[theme_index] = report
+        return report
+
+    except Exception as e:
+        logger.error(f"[Patent] 特許分析に失敗: {e}")
+        return None
 
 
 agent_runner = AgentRunner()

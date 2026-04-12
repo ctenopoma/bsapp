@@ -48,7 +48,7 @@ export default function AdminScreen() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto flex flex-col gap-4">
+    <div className="p-6 w-full flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <Users size={24} className="text-blue-600" />
         <h2 className="text-xl font-bold text-gray-900">ユーザー管理</h2>

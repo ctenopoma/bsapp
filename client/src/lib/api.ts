@@ -22,6 +22,10 @@ import {
   PatentAnalyzeResponse,
   PatentSummaryRequest,
   PatentSummaryResponse,
+  PatentCompressRequest,
+  PatentCompressResponse,
+  PatentChunkedAnalyzeRequest,
+  PatentChunkedAnalyzeResponse,
   HelperAskRequest,
   HelperAskResponse,
 } from '../types/api';
@@ -199,6 +203,14 @@ export function getDownloadUrl(relativePath: string): string {
 // 特許調査 API
 export function apiPatentAnalyze(req: PatentAnalyzeRequest): Promise<PatentAnalyzeResponse> {
   return request('/api/patent/analyze', { method: 'POST', body: JSON.stringify(req) });
+}
+
+export function apiPatentCompress(req: PatentCompressRequest): Promise<PatentCompressResponse> {
+  return request('/api/patent/compress', { method: 'POST', body: JSON.stringify(req) });
+}
+
+export function apiPatentAnalyzeChunked(req: PatentChunkedAnalyzeRequest): Promise<PatentChunkedAnalyzeResponse> {
+  return request('/api/patent/analyze_chunked', { method: 'POST', body: JSON.stringify(req) });
 }
 
 export function apiPatentSummary(req: PatentSummaryRequest): Promise<PatentSummaryResponse> {

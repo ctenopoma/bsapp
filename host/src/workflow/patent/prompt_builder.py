@@ -6,8 +6,12 @@ workflow/patent/prompt_builder.py
 ★ ここを書き換えることで分析指示・レポート構成を変更できます ★
 
 変数プレースホルダー:
-  PATENT_ANALYZE_TEMPLATE : {system_prompt}, {company}, {patents}, {output_format}
-  PATENT_SUMMARY_TEMPLATE  : {system_prompt}, {reports}
+  PATENT_ANALYZE_TEMPLATE      : {system_prompt}, {company}, {patents}, {output_format}
+  PATENT_SUMMARY_TEMPLATE      : {system_prompt}, {reports}
+  COMPRESS_PER_PATENT_TEMPLATE : {patent}
+  COMPRESS_PER_COMPANY_TEMPLATE: {company}, {patents}
+  CHUNK_ANALYZE_TEMPLATE       : {system_prompt}, {company}, {chunk_no}, {total_chunks}, {patents}, {count}
+  CHUNK_REDUCE_TEMPLATE        : {system_prompt}, {company}, {chunk_count}, {intermediate_reports}, {output_format}
 """
 
 # -------------------------------------------------------------------
@@ -19,7 +23,7 @@ PATENT_ANALYZE_TEMPLATE = """\
 ## 分析対象企業
 {company}
 
-## 特許リスト (最新{count}件)
+## 特許リスト ({count}件)
 {patents}
 
 {output_format}
@@ -36,6 +40,54 @@ PATENT_SUMMARY_TEMPLATE = """\
 {reports}
 
 上記のすべての企業レポートをもとに、業界全体の技術動向と各社の競争優位性を総括してください。
+"""
+
+# -------------------------------------------------------------------
+# 圧縮プロンプト
+# -------------------------------------------------------------------
+COMPRESS_PER_PATENT_TEMPLATE = """\
+以下の特許を1〜2文に要約してください。技術的な核心のみを簡潔に述べてください。
+
+{patent}
+
+要約:"""
+
+COMPRESS_PER_COMPANY_TEMPLATE = """\
+以下は{company}の特許リストです。これらを統合して、主要な技術領域と研究方向性を3〜5文にまとめてください。
+
+{patents}
+
+まとめ:"""
+
+# -------------------------------------------------------------------
+# チャンク分割Reduce プロンプト
+# -------------------------------------------------------------------
+CHUNK_ANALYZE_TEMPLATE = """\
+{system_prompt}
+
+## 分析対象企業
+{company}
+
+## 特許リスト（チャンク {chunk_no}/{total_chunks}、{count}件）
+{patents}
+
+以下の点に注目して、このチャンクの特許群を分析してください。
+最終的に複数チャンクの結果をまとめるため、このチャンク内の技術的特徴・キーワード・傾向を具体的に記述してください。
+"""
+
+CHUNK_REDUCE_TEMPLATE = """\
+{system_prompt}
+
+## 分析対象企業
+{company}
+
+## チャンクごとの中間分析結果（全{chunk_count}チャンク）
+
+{intermediate_reports}
+
+上記の全チャンクの分析結果を統合し、最終レポートを作成してください。
+
+{output_format}
 """
 
 # -------------------------------------------------------------------

@@ -1,18 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { generateUUID } from '../lib/uuid';
 import { useNavigate } from 'react-router-dom';
-import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS } from '../types/api';
+import { Persona, TaskModel, ThemeConfig, THEME_STRATEGIES, PROJECT_FLOWS, PatentConfig } from '../types/api';
 import {
   getPersonas, getTasks, createSession, getThemeEntries, saveThemeEntries,
   getSessionConfig, saveSessionConfig,
   getPresets, createPreset, updatePreset, deletePreset, PresetData,
   getPersonaPresets, PersonaPresetData,
   getTaskPresets, TaskPresetData,
+  getPatentPresets,
 } from '../lib/server-db';
 import { apiStartSession, apiGetSettings, apiGenerateTitle } from '../lib/api';
-import { Settings, Play, Plus, Trash2, Save, FolderOpen, FilePlus, Users, ListTodo, ArrowUp, ArrowDown } from 'lucide-react';
+import { Settings, Play, Plus, Trash2, Save, FolderOpen, FilePlus, Users, ListTodo, ArrowUp, ArrowDown, FlaskConical } from 'lucide-react';
 import HelperChatWidget from './HelperChatWidget';
-import type { FieldSuggestion } from '../types/api';
+import type { FieldSuggestion, PatentPresetData } from '../types/api';
 
 interface ThemeEntry {
   localId: string;
@@ -29,14 +30,15 @@ interface ThemeEntry {
   taskAssignment: string; // タスク割り当てモード: random / round_robin / fixed（空=グローバル設定）
   personaTaskMap: Record<string, string>; // fixed時のペルソナID→タスクID
   summarize: boolean; // テーマ終了後に要約を生成するか
+  patentConfig: PatentConfig | null; // 特許分析設定（null=使用しない）
 }
 
 function newEntry(): ThemeEntry {
-  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false, flowRoleMap: {} as Record<string, string[]>, taskAssignment: '', personaTaskMap: {}, summarize: true };
+  return { localId: generateUUID(), text: '', personaIds: new Set(), outputFormat: '', turnsPerTheme: null, preInfo: '', themeStrategy: '', strategyConfig: {}, personaOrder: [], useCustomOrder: false, flowRoleMap: {} as Record<string, string[]>, taskAssignment: '', personaTaskMap: {}, summarize: true, patentConfig: null };
 }
 
 // DB形式 <-> UI形式変換
-function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[]; flow_role_map?: Record<string, string>; task_assignment?: string; persona_task_map?: Record<string, string>; summarize?: boolean }): ThemeEntry {
+function dbToUi(e: { id: string; text: string; persona_ids: string; output_format: string; turns_per_theme?: number | null; pre_info?: string; theme_strategy?: string; strategy_config?: Record<string, any>; persona_order?: string[]; flow_role_map?: Record<string, string>; task_assignment?: string; persona_task_map?: Record<string, string>; summarize?: boolean; patent_config?: PatentConfig | null }): ThemeEntry {
   const personaOrder = e.persona_order ?? [];
   return {
     localId: e.id,
@@ -60,6 +62,7 @@ function dbToUi(e: { id: string; text: string; persona_ids: string; output_forma
     taskAssignment: e.task_assignment ?? '',
     personaTaskMap: e.persona_task_map ?? {},
     summarize: e.summarize ?? true,
+    patentConfig: e.patent_config ?? null,
   };
 }
 
@@ -84,6 +87,7 @@ function uiToDb(e: ThemeEntry, i: number) {
     task_assignment: e.taskAssignment || undefined,
     persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
     summarize: e.summarize,
+    patent_config: e.patentConfig ?? undefined,
     sort_order: i,
   };
 }
@@ -181,6 +185,7 @@ export default function SetupScreen() {
   const [error, setError] = useState('');
   const [projectFlow, setProjectFlow] = useState('waterfall');
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
+  const [patentCsvPath, setPatentCsvPath] = useState('');
   const [themeTab, setThemeTab] = useState<Record<string, string>>({}); // localId → active tab
   const [flowRoleTab, setFlowRoleTab] = useState(''); // active flow role tab
 
@@ -195,6 +200,9 @@ export default function SetupScreen() {
   const [taskPresets, setTaskPresets] = useState<TaskPresetData[]>([]);
   const [selectedPersonaPresetId, setSelectedPersonaPresetId] = useState<string>('');
   const [selectedTaskPresetId, setSelectedTaskPresetId] = useState<string>('');
+
+  // 特許分析プリセット（テーマ設定で使用）
+  const [patentPresets, setPatentPresets] = useState<PatentPresetData[]>([]);
 
   const MAX_TEXTAREA_H = 160;
 
@@ -228,6 +236,7 @@ export default function SetupScreen() {
     apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
     getPresets().then(setPresets).catch(console.error);
     getPersonaPresets().then(setPersonaPresets).catch(console.error);
+    getPatentPresets().then(setPatentPresets).catch(console.error);
     getTaskPresets().then(setTaskPresets).catch(console.error);
   }, []);
 
@@ -477,12 +486,13 @@ export default function SetupScreen() {
       task_assignment: e.taskAssignment || undefined,
       persona_task_map: Object.keys(e.personaTaskMap).length > 0 ? e.personaTaskMap : undefined,
       summarize: e.summarize,
+      patent_config: e.patentConfig ?? undefined,
     }));
 
     try {
       setIsStarting(true);
       setError('');
-      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined });
+      const res = await apiStartSession({ themes, personas: usedPersonas, tasks: usedTasks, history: [], common_theme: commonTheme, pre_info: preInfo, turns_per_theme: turnsPerTheme, project_flow: projectFlow || undefined, flow_config: Object.keys(flowConfig).length > 0 ? flowConfig : undefined, patent_csv_path: patentCsvPath || undefined });
       const sessionId = res.session_id;
       // LLMにタイトルを生成させる（失敗時はフォールバック）
       let title: string;
@@ -492,7 +502,7 @@ export default function SetupScreen() {
       } catch {
         title = themes[0].theme.substring(0, 30) + (themes[0].theme.length > 30 ? '...' : '');
       }
-      await createSession(sessionId, title);
+      await createSession(sessionId, title, commonTheme, preInfo);
       navigate(`/discussion/${sessionId}`);
     } catch (e: any) {
       setError(e.message || 'Failed to start session');
@@ -534,7 +544,7 @@ export default function SetupScreen() {
   };
 
   return (
-    <div ref={containerRef} className="p-8 max-w-3xl mx-auto flex flex-col h-full overflow-y-auto">
+    <div ref={containerRef} className="p-8 w-full flex flex-col h-full overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
           <Settings className="text-blue-600" />
@@ -792,6 +802,16 @@ export default function SetupScreen() {
             );
           })()}
         </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1">特許分析CSVパス <span className="text-gray-400 font-normal text-xs">（テーマに特許分析を設定している場合に使用）</span></label>
+          <input
+            type="text"
+            value={patentCsvPath}
+            onChange={e => setPatentCsvPath(e.target.value)}
+            placeholder="例: C:/data/patents.csv（空の場合はSettings画面の設定を使用）"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {/* テーマ設定セクション（フロー役割タブ統合） */}
@@ -935,6 +955,7 @@ export default function SetupScreen() {
                         { id: 'basic', label: '基本設定' },
                         { id: 'strategy', label: 'ストラテジー' },
                         { id: 'order', label: '発言順' },
+                        { id: 'patent', label: entry.patentConfig ? '🔬 特許分析 ✓' : '特許分析' },
                       ];
                       return (
                         <>
@@ -1389,6 +1410,205 @@ export default function SetupScreen() {
                                   )}
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* 特許分析タブ */}
+                          {activeTab === 'patent' && (
+                            <div className="flex flex-col gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={entry.patentConfig !== null}
+                                  onChange={e => {
+                                    const enabled = e.target.checked;
+                                    setThemeEntries(prev => {
+                                      const next = prev.map(t => t.localId === entry.localId
+                                        ? { ...t, patentConfig: enabled ? { preset_id: '', system_prompt: '', output_format: '', strategy: 'bulk', chunk_size: 20, max_companies: 20, max_total_patents: 100, patents_per_company: 10, pre_info_sources: [] } : null }
+                                        : t
+                                      );
+                                      saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-4 h-4 accent-blue-600"
+                                />
+                                <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                                  <FlaskConical size={13} className="text-blue-500" />
+                                  このテーマの前に特許分析を実行する
+                                </span>
+                              </label>
+
+                              {entry.patentConfig !== null && (() => {
+                                const pc = entry.patentConfig!;
+                                const updatePc = (patch: Partial<PatentConfig>) => {
+                                  setThemeEntries(prev => {
+                                    const next = prev.map(t => t.localId === entry.localId
+                                      ? { ...t, patentConfig: { ...t.patentConfig!, ...patch } }
+                                      : t
+                                    );
+                                    saveThemeEntries(next.map(uiToDb)).catch(console.error);
+                                    return next;
+                                  });
+                                };
+                                const entryIndex = themeEntries.findIndex(t => t.localId === entry.localId);
+                                const prevThemes = themeEntries.slice(0, entryIndex);
+
+                                return (
+                                  <div className="flex flex-col gap-3 pl-6 border-l-2 border-blue-100">
+                                    {/* プリセット選択 */}
+                                    <div>
+                                      <label className="block text-xs font-semibold text-gray-500 mb-1">プリセットから読み込む</label>
+                                      <select
+                                        value={pc.preset_id ?? ''}
+                                        onChange={e => {
+                                          const pid = e.target.value;
+                                          const preset = patentPresets.find(p => p.id === pid);
+                                          if (preset) {
+                                            updatePc({
+                                              preset_id: pid,
+                                              system_prompt: preset.system_prompt,
+                                              output_format: preset.output_format,
+                                              strategy: preset.strategy,
+                                              chunk_size: preset.chunk_size,
+                                              max_companies: preset.max_companies,
+                                              max_total_patents: preset.max_total_patents,
+                                              patents_per_company: preset.patents_per_company,
+                                            });
+                                          } else {
+                                            updatePc({ preset_id: '' });
+                                          }
+                                        }}
+                                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-blue-500 bg-white"
+                                      >
+                                        <option value="">— プリセットを選択（直接設定も可）—</option>
+                                        {patentPresets.map(p => (
+                                          <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                      </select>
+                                      {patentPresets.length === 0 && (
+                                        <p className="text-xs text-gray-400 mt-1">Patent Researchでプリセットを保存すると、ここで選択できます。</p>
+                                      )}
+                                    </div>
+
+                                    {/* 事前情報ソース（前のテーマの要約・発言を引用） */}
+                                    {prevThemes.length > 0 && (
+                                      <div>
+                                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                          システムプロンプトに含める事前情報
+                                        </label>
+                                        <div className="flex flex-col gap-1.5">
+                                          {prevThemes.map((prevEntry, i) => {
+                                            const n = i + 1;
+                                            const label = prevEntry.text.trim().slice(0, 20) || `テーマ${n}`;
+                                            const summaryKey = `summary:${n}`;
+                                            const messagesKey = `messages:${n}`;
+                                            const sources = pc.pre_info_sources ?? [];
+                                            return (
+                                              <div key={prevEntry.localId} className="flex items-center gap-3 text-xs flex-wrap">
+                                                <span className="text-gray-500 w-28 truncate shrink-0" title={prevEntry.text}>{label}</span>
+                                                <label className="flex items-center gap-1 cursor-pointer">
+                                                  <input type="checkbox"
+                                                    checked={sources.includes(summaryKey)}
+                                                    onChange={e => {
+                                                      const next = e.target.checked ? [...sources, summaryKey] : sources.filter(s => s !== summaryKey);
+                                                      updatePc({ pre_info_sources: next });
+                                                    }}
+                                                    className="w-3 h-3 accent-blue-600" />
+                                                  <span className="text-gray-600">要約</span>
+                                                </label>
+                                                <label className="flex items-center gap-1 cursor-pointer">
+                                                  <input type="checkbox"
+                                                    checked={sources.includes(messagesKey)}
+                                                    onChange={e => {
+                                                      const next = e.target.checked ? [...sources, messagesKey] : sources.filter(s => s !== messagesKey);
+                                                      updatePc({ pre_info_sources: next });
+                                                    }}
+                                                    className="w-3 h-3 accent-blue-600" />
+                                                  <span className="text-gray-600">全発言</span>
+                                                </label>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* システムプロンプト */}
+                                    <div>
+                                      <label className="block text-xs font-semibold text-gray-500 mb-1">システムプロンプト</label>
+                                      <textarea
+                                        value={pc.system_prompt ?? ''}
+                                        onChange={e => updatePc({ system_prompt: e.target.value, preset_id: '' })}
+                                        placeholder="（空=デフォルトプロンプト）"
+                                        rows={3}
+                                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-blue-500 resize-y font-mono"
+                                      />
+                                    </div>
+
+                                    {/* 出力フォーマット */}
+                                    <div>
+                                      <label className="block text-xs font-semibold text-gray-500 mb-1">出力フォーマット</label>
+                                      <textarea
+                                        value={pc.output_format ?? ''}
+                                        onChange={e => updatePc({ output_format: e.target.value, preset_id: '' })}
+                                        placeholder="（空=デフォルト）"
+                                        rows={3}
+                                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-blue-500 resize-y font-mono"
+                                      />
+                                    </div>
+
+                                    {/* 数値設定 */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="block text-xs text-gray-500 mb-1">最大企業数</label>
+                                        <input type="number" min={1} value={pc.max_companies ?? 20}
+                                          onChange={e => updatePc({ max_companies: parseInt(e.target.value) || 20, preset_id: '' })}
+                                          className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500" />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-500 mb-1">企業ごとの件数</label>
+                                        <input type="number" min={1} value={pc.patents_per_company ?? 10}
+                                          onChange={e => updatePc({ patents_per_company: parseInt(e.target.value) || 10, preset_id: '' })}
+                                          className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500" />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-500 mb-1">合計最大件数</label>
+                                        <input type="number" min={1} value={pc.max_total_patents ?? 100}
+                                          onChange={e => updatePc({ max_total_patents: parseInt(e.target.value) || 100, preset_id: '' })}
+                                          className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500" />
+                                      </div>
+                                    </div>
+
+                                    {/* 分析戦略 */}
+                                    <div>
+                                      <label className="block text-xs font-semibold text-gray-500 mb-1">分析戦略</label>
+                                      <select
+                                        value={pc.strategy ?? 'bulk'}
+                                        onChange={e => updatePc({ strategy: e.target.value, preset_id: '' })}
+                                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-blue-500 bg-white"
+                                      >
+                                        <option value="bulk">一括分析</option>
+                                        <option value="bulk_per_patent">一括（特許個別要約）</option>
+                                        <option value="bulk_per_company">一括（企業別まとめ要約）</option>
+                                        <option value="chunked">チャンク分割Reduce</option>
+                                      </select>
+                                      {pc.strategy === 'chunked' && (
+                                        <div className="mt-1 flex items-center gap-2">
+                                          <label className="text-xs text-gray-500">チャンクサイズ</label>
+                                          <input type="number" min={1} value={pc.chunk_size ?? 20}
+                                            onChange={e => updatePc({ chunk_size: parseInt(e.target.value) || 20, preset_id: '' })}
+                                            className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500" />
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <p className="text-xs text-gray-400">
+                                      ※ CSVパスはセッション設定の「特許分析CSVパス」で指定してください。未入力の場合はSettings画面の patent_csv_path が使用されます。
+                                    </p>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </>

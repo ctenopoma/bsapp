@@ -163,6 +163,7 @@ def build_agent_input(
     persona: Persona,
     output_format: str = "",
     stance_prompt: str = "",
+    patent_context: str | None = None,
 ) -> AgentInput:
     """セッション状態とペルソナからエージェントへの入力を構築する。
 
@@ -244,13 +245,18 @@ def build_agent_input(
         else session.current_theme
     )
 
-    # セッション共通の事前情報 + テーマ固有の事前情報 + ペルソナ固有の事前情報を結合
+    # セッション共通の事前情報 + テーマ固有の事前情報 + ペルソナ固有の事前情報 + 特許分析結果を結合
     theme_pre_info = (
         session.current_theme_config.pre_info
         if session.current_theme_config
         else ""
     )
-    pre_info = "\n\n".join(filter(None, [session.pre_info, theme_pre_info, persona.pre_info]))
+    patent_section = (
+        f"【特許分析結果】\n{patent_context}"
+        if patent_context
+        else ""
+    )
+    pre_info = "\n\n".join(filter(None, [session.pre_info, theme_pre_info, patent_section, persona.pre_info]))
 
     # テンプレート変数 ({{themeN_summary}} 等) を解決
     pre_info = resolve_template_variables(

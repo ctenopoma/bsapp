@@ -64,6 +64,19 @@ class AgentInput(BaseModel):
 # -------------------------------------------------------------------
 # Session API
 # -------------------------------------------------------------------
+class PatentConfig(BaseModel):
+    """テーマに設定する特許分析設定。"""
+    preset_id: str = ""           # PatentPresetのID（空=直接設定を使用）
+    system_prompt: str = ""
+    output_format: str = ""
+    strategy: str = "bulk"
+    chunk_size: int = 20
+    max_companies: int = 20
+    max_total_patents: int = 100
+    patents_per_company: int = 10
+    pre_info_sources: List[str] = Field(default_factory=list)  # 事前情報に含めるソース ("summary:N", "messages:N", etc.)
+
+
 class ThemeConfig(BaseModel):
     theme: str
     persona_ids: List[str] = Field(default_factory=list)  # 空=全ペルソナが有効
@@ -77,6 +90,7 @@ class ThemeConfig(BaseModel):
     task_assignment: str = ""  # タスク割り当てモード: random / round_robin / fixed (空=グローバル設定)
     persona_task_map: dict = Field(default_factory=dict)  # fixed時のペルソナID→タスクIDマッピング
     summarize: bool = True  # テーマ終了後に要約を生成するか
+    patent_config: Optional[PatentConfig] = None  # 特許分析設定（テーマ前に特許分析を実行）
 
 
 class SessionStartRequest(BaseModel):
@@ -89,6 +103,7 @@ class SessionStartRequest(BaseModel):
     pre_info: str = ""           # 事前情報 (ファイル内容等)
     project_flow: str = ""       # マクロフロータイプ (空=waterfall)
     flow_config: Optional[dict] = None  # フロー固有の設定
+    patent_csv_path: str = ""    # 特許CSVファイルパス（空の場合はAppSettings.patent_csv_pathを使用）
 
 
 class SessionStartResponse(BaseModel):
@@ -108,6 +123,7 @@ class TurnStatusResponse(BaseModel):
     all_themes_done: Optional[bool] = None
     history_compressed: Optional[bool] = None  # 履歴圧縮が発生したか
     rag_context: Optional[str] = None  # RAGで取得したコンテキスト
+    patent_context: Optional[str] = None  # 特許分析結果（Discussion内でテーマ前に実行）
     error_msg: Optional[str] = None
 
 
@@ -155,7 +171,17 @@ class AppSettings(BaseModel):
     # 特許調査設定
     patent_company_column: str = "出願人"   # CSV内の企業名列名
     patent_content_column: str = "請求項"  # CSV内の特許内容列名
-    patent_date_column: str = "出願日"         # CSV内の日付列名 (最新N件ソート用)
+    patent_date_column: str = "出願日"      # CSV内の日付列名 (最新N件ソート用)
+    # 特許調査 トークン上限 (0=無制限)
+    patent_max_prompt_tokens: int = 0
+    # 特許圧縮プロンプト
+    patent_compress_per_patent_prompt: str = ""   # 空=デフォルト
+    patent_compress_per_company_prompt: str = ""  # 空=デフォルト
+    # チャンク分割Reduce プロンプト
+    patent_chunk_analyze_prompt: str = ""  # Map フェーズ: 各チャンクの分析プロンプト (空=デフォルト)
+    patent_chunk_reduce_prompt: str = ""   # Reduce フェーズ: 中間レポート統合プロンプト (空=デフォルト)
+    # Discussion内の特許分析用CSVパス（空=未設定）
+    patent_csv_path: str = ""
 
 
 # -------------------------------------------------------------------
@@ -168,9 +194,11 @@ class PatentItem(BaseModel):
 
 class PatentAnalyzeRequest(BaseModel):
     company: str
-    patents: List[PatentItem]   # クライアントが最新10件に絞り込み済み
+    patents: List[PatentItem]   # クライアントが絞り込み済み
     system_prompt: str
     output_format: str
+    # トークン上限（0=サーバーデフォルト上限を使用）
+    max_prompt_tokens: int = 0
 
 
 class PatentAnalyzeResponse(BaseModel):
@@ -185,6 +213,49 @@ class PatentSummaryRequest(BaseModel):
 
 class PatentSummaryResponse(BaseModel):
     summary: str
+
+
+class PatentCompressRequest(BaseModel):
+    """特許リストを圧縮して返す（トークン削減用）。"""
+    patents: List[PatentItem]
+    mode: str  # "per_patent" | "per_company"
+    company: str = ""  # per_company モード時に使用
+    compress_prompt: str = ""  # 空=デフォルトプロンプト
+
+
+class PatentCompressResponse(BaseModel):
+    patents: List[PatentItem]  # 圧縮後の特許リスト
+    original_count: int
+    compressed_count: int
+
+
+class PatentChunkedAnalyzeRequest(BaseModel):
+    """チャンク分割Reduceによる特許分析リクエスト。"""
+    company: str
+    patents: List[PatentItem]
+    system_prompt: str
+    output_format: str
+    chunk_size: int = 20          # 1チャンクあたりの特許数
+    max_prompt_tokens: int = 0    # 0=サーバーデフォルト上限
+
+
+class PatentChunkedAnalyzeResponse(BaseModel):
+    company: str
+    report: str                   # Reduce後の最終レポート
+    chunk_count: int              # 実行したチャンク数
+    intermediate_reports: List[str]  # 各チャンクの中間レポート（デバッグ用）
+
+
+class PatentPresetModel(BaseModel):
+    id: str
+    name: str
+    system_prompt: str = ""
+    output_format: str = ""
+    strategy: str = "bulk"
+    chunk_size: int = 20
+    max_companies: int = 20
+    max_total_patents: int = 100
+    patents_per_company: int = 10
 
 
 class HealthResponse(BaseModel):

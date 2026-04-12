@@ -721,7 +721,7 @@ export default function RagScreen() {
   const [tab, setTab] = useState<Tab>('manage');
 
   return (
-    <div className="p-8 max-w-6xl mx-auto flex flex-col h-full gap-6">
+    <div className="p-8 w-full flex flex-col h-full gap-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">

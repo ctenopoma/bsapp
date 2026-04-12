@@ -93,7 +93,7 @@ export default function ManualScreen() {
 
       {/* コンテンツエリア */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-8 py-8">
+        <div className="w-full px-8 py-8">
           <article className="prose prose-gray prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-xl prose-h2:border-b prose-h2:border-gray-200 prose-h2:pb-2 prose-table:text-sm prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:rounded max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}

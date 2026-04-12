@@ -17,4 +17,5 @@ dependencies = [
     "asyncpg>=0.30",
     "python-jose[cryptography]>=3.3",
     "httpx>=0.28",
+    "tiktoken>=0.9",
 ]

@@ -28,6 +28,7 @@ class User(Base):
     persona_presets: Mapped[list["PersonaPreset"]] = relationship("PersonaPreset", back_populates="user", cascade="all, delete-orphan")
     task_presets: Mapped[list["TaskPreset"]] = relationship("TaskPreset", back_populates="user", cascade="all, delete-orphan")
     patent_sessions: Mapped[list["PatentSession"]] = relationship("PatentSession", back_populates="user", cascade="all, delete-orphan")
+    patent_presets: Mapped[list["PatentPreset"]] = relationship("PatentPreset", back_populates="user", cascade="all, delete-orphan")
 
 
 class Persona(Base):
@@ -73,6 +74,8 @@ class Session(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    common_theme: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    pre_info: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="sessions")
@@ -89,6 +92,8 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     turn_order: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    rag_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    patent_context: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"] = relationship("Session", back_populates="messages")
 
@@ -171,3 +176,23 @@ class PatentSummary(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
 
     session: Mapped["PatentSession"] = relationship("PatentSession", back_populates="summary")
+
+
+class PatentPreset(Base):
+    """特許分析のプリセット設定（PatentResearchScreenで保存・Setupで利用）。"""
+    __tablename__ = "patent_presets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    output_format: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    strategy: Mapped[str] = mapped_column(String(50), nullable=False, default="bulk")
+    chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    max_companies: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    max_total_patents: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    patents_per_company: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="patent_presets")

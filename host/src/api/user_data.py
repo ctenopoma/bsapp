@@ -13,7 +13,7 @@ from sqlalchemy import select, delete
 from src.auth import require_approved
 from src.database import get_db
 from src.db_models import User, Persona, Task, Session, Message, SessionConfig, SessionPreset, PersonaPreset, TaskPreset
-from src.db_models import PatentSession, PatentReport, PatentSummary
+from src.db_models import PatentSession, PatentReport, PatentSummary, PatentPreset
 
 router = APIRouter()
 
@@ -449,9 +449,18 @@ async def delete_task_preset(
 # Sessions & Messages
 # ─────────────────────────────────────────────
 
+class SessionIn(BaseModel):
+    id: str
+    title: str
+    common_theme: str = ""
+    pre_info: str = ""
+
+
 class SessionOut(BaseModel):
     id: str
     title: str
+    common_theme: str
+    pre_info: str
     created_at: str
 
 
@@ -461,6 +470,8 @@ class MessageIn(BaseModel):
     agent_name: str
     content: str
     turn_order: int
+    rag_context: str | None = None
+    patent_context: str | None = None
 
 
 class MessageOut(MessageIn):
@@ -475,20 +486,32 @@ async def list_sessions(
     result = await db.execute(
         select(Session).where(Session.user_id == user.id).order_by(Session.created_at.desc())
     )
-    return [SessionOut(id=r.id, title=r.title, created_at=r.created_at.isoformat()) for r in result.scalars().all()]
+    return [SessionOut(id=r.id, title=r.title, common_theme=r.common_theme, pre_info=r.pre_info, created_at=r.created_at.isoformat()) for r in result.scalars().all()]
 
 
 @router.post("/sessions", response_model=SessionOut, status_code=201)
 async def create_session(
-    body: SessionOut,
+    body: SessionIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_approved),
 ):
-    s = Session(id=body.id, user_id=user.id, title=body.title)
+    s = Session(id=body.id, user_id=user.id, title=body.title, common_theme=body.common_theme, pre_info=body.pre_info)
     db.add(s)
     await db.commit()
     await db.refresh(s)
-    return SessionOut(id=s.id, title=s.title, created_at=s.created_at.isoformat())
+    return SessionOut(id=s.id, title=s.title, common_theme=s.common_theme, pre_info=s.pre_info, created_at=s.created_at.isoformat())
+
+
+@router.get("/sessions/{session_id}", response_model=SessionOut)
+async def get_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    s = await db.get(Session, session_id)
+    if not s or s.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionOut(id=s.id, title=s.title, common_theme=s.common_theme, pre_info=s.pre_info, created_at=s.created_at.isoformat())
 
 
 class SessionUpdateBody(BaseModel):
@@ -508,7 +531,7 @@ async def update_session(
     s.title = body.title
     await db.commit()
     await db.refresh(s)
-    return SessionOut(id=s.id, title=s.title, created_at=s.created_at.isoformat())
+    return SessionOut(id=s.id, title=s.title, common_theme=s.common_theme, pre_info=s.pre_info, created_at=s.created_at.isoformat())
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
@@ -537,7 +560,7 @@ async def list_messages(
         select(Message).where(Message.session_id == session_id).order_by(Message.turn_order)
     )
     rows = result.scalars().all()
-    return [MessageOut(id=r.id, theme=r.theme, agent_name=r.agent_name, content=r.content, turn_order=r.turn_order) for r in rows]
+    return [MessageOut(id=r.id, theme=r.theme, agent_name=r.agent_name, content=r.content, turn_order=r.turn_order, rag_context=getattr(r, "rag_context", None), patent_context=getattr(r, "patent_context", None)) for r in rows]
 
 
 @router.post("/sessions/{session_id}/messages", response_model=MessageOut, status_code=201)
@@ -557,10 +580,12 @@ async def add_message(
         agent_name=body.agent_name,
         content=body.content,
         turn_order=body.turn_order,
+        rag_context=body.rag_context,
+        patent_context=body.patent_context,
     )
     db.add(m)
     await db.commit()
-    return MessageOut(id=m.id, theme=m.theme, agent_name=m.agent_name, content=m.content, turn_order=m.turn_order)
+    return MessageOut(id=m.id, theme=m.theme, agent_name=m.agent_name, content=m.content, turn_order=m.turn_order, rag_context=m.rag_context, patent_context=m.patent_context)
 
 
 # ─────────────────────────────────────────────
@@ -674,6 +699,108 @@ async def save_patent_summary(
         db.add(PatentSummary(id=str(uuid.uuid4()), session_id=session_id, summary=summary_text))
     await db.commit()
     return {"session_id": session_id, "summary": summary_text}
+
+
+# ─────────────────────────────────────────────
+# Patent Presets
+# ─────────────────────────────────────────────
+
+class PatentPresetIn(BaseModel):
+    id: str
+    name: str
+    system_prompt: str = ""
+    output_format: str = ""
+    strategy: str = "bulk"
+    chunk_size: int = 20
+    max_companies: int = 20
+    max_total_patents: int = 100
+    patents_per_company: int = 10
+
+
+class PatentPresetOut(PatentPresetIn):
+    pass
+
+
+@router.get("/patent-presets", response_model=list[PatentPresetOut])
+async def list_patent_presets(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(PatentPreset).where(PatentPreset.user_id == user.id).order_by(PatentPreset.sort_order, PatentPreset.created_at)
+    )
+    rows = result.scalars().all()
+    return [PatentPresetOut(
+        id=r.id, name=r.name, system_prompt=r.system_prompt, output_format=r.output_format,
+        strategy=r.strategy, chunk_size=r.chunk_size, max_companies=r.max_companies,
+        max_total_patents=r.max_total_patents, patents_per_company=r.patents_per_company,
+    ) for r in rows]
+
+
+@router.post("/patent-presets", response_model=PatentPresetOut, status_code=201)
+async def create_patent_preset(
+    body: PatentPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(PatentPreset).where(PatentPreset.user_id == user.id).order_by(PatentPreset.sort_order.desc())
+    )
+    last = result.scalars().first()
+    pp = PatentPreset(
+        id=body.id, user_id=user.id, name=body.name,
+        system_prompt=body.system_prompt, output_format=body.output_format,
+        strategy=body.strategy, chunk_size=body.chunk_size,
+        max_companies=body.max_companies, max_total_patents=body.max_total_patents,
+        patents_per_company=body.patents_per_company,
+        sort_order=(last.sort_order + 1) if last else 0,
+    )
+    db.add(pp)
+    await db.commit()
+    return PatentPresetOut(
+        id=pp.id, name=pp.name, system_prompt=pp.system_prompt, output_format=pp.output_format,
+        strategy=pp.strategy, chunk_size=pp.chunk_size, max_companies=pp.max_companies,
+        max_total_patents=pp.max_total_patents, patents_per_company=pp.patents_per_company,
+    )
+
+
+@router.put("/patent-presets/{preset_id}", response_model=PatentPresetOut)
+async def update_patent_preset(
+    preset_id: str,
+    body: PatentPresetIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pp = await db.get(PatentPreset, preset_id)
+    if not pp or pp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Patent preset not found")
+    pp.name = body.name
+    pp.system_prompt = body.system_prompt
+    pp.output_format = body.output_format
+    pp.strategy = body.strategy
+    pp.chunk_size = body.chunk_size
+    pp.max_companies = body.max_companies
+    pp.max_total_patents = body.max_total_patents
+    pp.patents_per_company = body.patents_per_company
+    await db.commit()
+    return PatentPresetOut(
+        id=pp.id, name=pp.name, system_prompt=pp.system_prompt, output_format=pp.output_format,
+        strategy=pp.strategy, chunk_size=pp.chunk_size, max_companies=pp.max_companies,
+        max_total_patents=pp.max_total_patents, patents_per_company=pp.patents_per_company,
+    )
+
+
+@router.delete("/patent-presets/{preset_id}", status_code=204)
+async def delete_patent_preset(
+    preset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pp = await db.get(PatentPreset, preset_id)
+    if not pp or pp.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Patent preset not found")
+    await db.delete(pp)
+    await db.commit()
 
 
 @router.get("/patent-sessions/{session_id}/summary")

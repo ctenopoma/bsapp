@@ -361,7 +361,7 @@ export default function PersonasScreen() {
     : { name: createForm.name ?? '', role: createForm.role ?? '', pre_info: createForm.pre_info ?? '' };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-8 w-full">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-gray-900">Manage Personas</h1>
         <button

@@ -42,8 +42,22 @@ async def init_db() -> None:
         # Migrate: add last_known_ip to users (for IP-based session recovery)
         import sqlalchemy as _sa
         await conn.execute(_sa.text(
+            "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS common_theme TEXT DEFAULT ''"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pre_info TEXT DEFAULT ''"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS rag_context TEXT"
+        ))
+        await conn.execute(_sa.text(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_known_ip VARCHAR(45)"
         ))
         await conn.execute(_sa.text(
             "CREATE INDEX IF NOT EXISTS ix_users_last_known_ip ON users (last_known_ip)"
+        ))
+        # Migrate: add patent_presets table (new columns added via create_all above)
+        # Migrate: add patent_context to messages (for patent analysis results in discussions)
+        await conn.execute(_sa.text(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS patent_context TEXT"
         ))
