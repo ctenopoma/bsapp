@@ -279,11 +279,30 @@ export default function DiscussionScreen() {
       try {
         await navigator.clipboard.writeText(text);
         triggerCopied(key);
+        return;
       } catch (fallbackErr) {
-        console.error('Fallback browser clipboard copy failed:', fallbackErr);
+        console.warn('navigator.clipboard failed, trying execCommand:', fallbackErr);
       }
-    } else {
-      console.error('No clipboard API available in this environment.');
+    }
+
+    // HTTP環境など非セキュアコンテキスト向けフォールバック
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (success) {
+        triggerCopied(key);
+      } else {
+        console.error('execCommand copy failed.');
+      }
+    } catch (execErr) {
+      console.error('No clipboard API available in this environment.', execErr);
     }
   };
 
