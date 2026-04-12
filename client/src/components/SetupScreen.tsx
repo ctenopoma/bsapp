@@ -232,13 +232,17 @@ export default function SetupScreen() {
   const [commonTheme, setCommonTheme] = useState('');
   const [preInfo, setPreInfo] = useState('');
   const [turnsPerTheme, setTurnsPerTheme] = useState(5);
+  const [patentCompanyColumn, setPatentCompanyColumn] = useState('出願人');
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
   const [projectFlow, setProjectFlow] = useState('waterfall');
   const [flowConfig, setFlowConfig] = useState<Record<string, any>>({});
+  const [patentAllRows, setPatentAllRows] = useState<Record<string, string>[]>([]);
   const [patentRows, setPatentRows] = useState<Record<string, string>[]>([]);
   const [patentFileName, setPatentFileName] = useState('');
   const [patentCsvError, setPatentCsvError] = useState('');
+  const [patentCompanies, setPatentCompanies] = useState<{ company: string; count: number }[]>([]);
+  const [patentSelected, setPatentSelected] = useState<Set<string>>(new Set());
   const patentFileRef = useRef<HTMLInputElement>(null);
   const [themeTab, setThemeTab] = useState<Record<string, string>>({}); // localId → active tab
   const [flowRoleTab, setFlowRoleTab] = useState(''); // active flow role tab
@@ -287,7 +291,7 @@ export default function SetupScreen() {
     getSessionConfig('pre_info').then(setPreInfo).catch(console.error);
     getSessionConfig('project_flow').then(v => { if (v) setProjectFlow(v); }).catch(console.error);
     getSessionConfig('flow_config').then(v => { if (v) try { setFlowConfig(JSON.parse(v)); } catch {} }).catch(console.error);
-    apiGetSettings().then(s => setTurnsPerTheme(s.turns_per_theme)).catch(console.error);
+    apiGetSettings().then(s => { setTurnsPerTheme(s.turns_per_theme); setPatentCompanyColumn(s.patent_company_column || '出願人'); }).catch(console.error);
     getPresets().then(setPresets).catch(console.error);
     getPersonaPresets().then(setPersonaPresets).catch(console.error);
     getPatentPresets().then(setPatentPresets).catch(console.error);
@@ -868,14 +872,54 @@ export default function SetupScreen() {
               CSVを選択
             </button>
             {patentFileName && (
-              <span className="text-sm text-gray-600">{patentFileName} <span className="text-xs text-gray-400">({patentRows.length}行)</span></span>
+              <span className="text-sm text-gray-600">{patentFileName} <span className="text-xs text-gray-400">({patentAllRows.length}行)</span></span>
             )}
             {patentFileName && (
-              <button type="button" onClick={() => { setPatentRows([]); setPatentFileName(''); setPatentCsvError(''); if (patentFileRef.current) patentFileRef.current.value = ''; }}
+              <button type="button" onClick={() => { setPatentAllRows([]); setPatentRows([]); setPatentFileName(''); setPatentCsvError(''); setPatentCompanies([]); setPatentSelected(new Set()); if (patentFileRef.current) patentFileRef.current.value = ''; }}
                 className="text-xs text-red-400 hover:text-red-600">クリア</button>
             )}
           </div>
           {patentCsvError && <p className="text-xs text-red-500 mt-1">{patentCsvError}</p>}
+          {patentCompanies.length > 0 && (
+            <div className="mt-2 border border-gray-200 rounded-lg p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-600">企業選択 <span className="text-gray-400 font-normal">({patentSelected.size}/{patentCompanies.length}社)</span></span>
+                <button type="button"
+                  onClick={() => {
+                    const next = patentSelected.size === patentCompanies.length
+                      ? new Set<string>()
+                      : new Set(patentCompanies.map(c => c.company));
+                    setPatentSelected(next);
+                    setPatentRows(patentAllRows.filter(r => next.has((r[patentCompanyColumn] ?? '').trim())));
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800">
+                  {patentSelected.size === patentCompanies.length ? '全解除' : '全選択'}
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto flex flex-col gap-0.5 pr-1">
+                {patentCompanies.map(({ company, count }) => {
+                  const checked = patentSelected.has(company);
+                  return (
+                    <button key={company} type="button"
+                      onClick={() => {
+                        const next = new Set(patentSelected);
+                        next.has(company) ? next.delete(company) : next.add(company);
+                        setPatentSelected(next);
+                        setPatentRows(patentAllRows.filter(r => next.has((r[patentCompanyColumn] ?? '').trim())));
+                      }}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors text-left ${checked ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50 text-gray-700'}`}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded-sm border flex-shrink-0 flex items-center justify-center text-[10px] ${checked ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-400'}`}>
+                        {checked && '✓'}
+                      </span>
+                      <span className="flex-1 truncate">{company}</span>
+                      <span className="text-xs text-gray-400 shrink-0">{count}件</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <input ref={patentFileRef} type="file" accept=".csv" className="hidden"
             onChange={async e => {
               const file = e.target.files?.[0];
@@ -885,8 +929,26 @@ export default function SetupScreen() {
                 const text = await readFileAsText(file);
                 const rows = parseCSV(text);
                 if (rows.length === 0) { setPatentCsvError('CSVにデータがありません'); return; }
-                setPatentRows(rows);
+                // 企業リスト生成
+                const colName = patentCompanyColumn;
+                if (!Object.prototype.hasOwnProperty.call(rows[0], colName)) {
+                  setPatentCsvError(`列名 "${colName}" が見つかりません。Settingsで列名を確認してください。`);
+                  return;
+                }
+                const countMap = new Map<string, number>();
+                for (const row of rows) {
+                  const co = (row[colName] ?? '').trim();
+                  if (co) countMap.set(co, (countMap.get(co) ?? 0) + 1);
+                }
+                const companiesList = [...countMap.entries()]
+                  .map(([company, count]) => ({ company, count }))
+                  .sort((a, b) => b.count - a.count);
+                setPatentAllRows(rows);
                 setPatentFileName(file.name);
+                setPatentCompanies(companiesList);
+                const allSelected = new Set(companiesList.map(c => c.company));
+                setPatentSelected(allSelected);
+                setPatentRows(rows); // 初期は全行
               } catch (err: any) {
                 setPatentCsvError(err.message ?? 'CSVの読み込みに失敗しました');
               }
