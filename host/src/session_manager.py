@@ -24,8 +24,12 @@ class SessionMemory:
         # マクロフロー設定
         self.project_flow: str = request.project_flow
         self.flow_config: dict = request.flow_config or {}
-        # クライアントがアップロードしたCSVの行データ
+        # クライアントがアップロードしたCSVの行データ（後方互換）
         self.patent_rows: List[dict] = request.patent_rows
+        # サーバー保存済みCSVのID（セッション開始時にAPIで取得してキャッシュ）
+        self.patent_csv_id: str = request.patent_csv_id
+        # CSVキャッシュ: csv_id → rows
+        self.patent_csv_cache: dict[str, List[dict]] = {}
         # 特許分析結果キャッシュ: theme_index → report text
         self.patent_context_cache: dict = {}
 

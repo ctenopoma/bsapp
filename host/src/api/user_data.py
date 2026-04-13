@@ -13,7 +13,8 @@ from sqlalchemy import select, delete
 from src.auth import require_approved
 from src.database import get_db
 from src.db_models import User, Persona, Task, Session, Message, SessionConfig, SessionPreset, PersonaPreset, TaskPreset
-from src.db_models import PatentSession, PatentReport, PatentSummary, PatentPreset
+from src.db_models import PatentSession, PatentReport, PatentSummary, PatentPreset, PatentCsv
+import json as _json
 
 router = APIRouter()
 
@@ -702,8 +703,97 @@ async def save_patent_summary(
 
 
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Patent CSV
+# ─────────────────────────────────────────────
+
+class PatentCsvUploadIn(BaseModel):
+    id: str
+    name: str
+    rows: list[dict]
+
+
+class PatentCsvMetaOut(BaseModel):
+    id: str
+    name: str
+    row_count: int
+    created_at: str
+
+
+@router.post("/patent-csvs", status_code=201, response_model=PatentCsvMetaOut)
+async def upload_patent_csv(
+    body: PatentCsvUploadIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pc = PatentCsv(
+        id=body.id,
+        user_id=user.id,
+        name=body.name,
+        rows_json=_json.dumps(body.rows, ensure_ascii=False),
+        row_count=len(body.rows),
+    )
+    db.add(pc)
+    await db.commit()
+    return PatentCsvMetaOut(id=pc.id, name=pc.name, row_count=pc.row_count,
+                            created_at=pc.created_at.isoformat() if pc.created_at else "")
+
+
+@router.get("/patent-csvs", response_model=list[PatentCsvMetaOut])
+async def list_patent_csvs(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    result = await db.execute(
+        select(PatentCsv).where(PatentCsv.user_id == user.id).order_by(PatentCsv.created_at.desc())
+    )
+    rows = result.scalars().all()
+    return [PatentCsvMetaOut(id=r.id, name=r.name, row_count=r.row_count,
+                             created_at=r.created_at.isoformat() if r.created_at else "") for r in rows]
+
+
+@router.get("/patent-csvs/{csv_id}/rows")
+async def get_patent_csv_rows(
+    csv_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pc = await db.get(PatentCsv, csv_id)
+    if not pc or pc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Patent CSV not found")
+    return {"id": pc.id, "name": pc.name, "rows": _json.loads(pc.rows_json)}
+
+
+@router.delete("/patent-csvs/{csv_id}", status_code=204)
+async def delete_patent_csv(
+    csv_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
+    pc = await db.get(PatentCsv, csv_id)
+    if not pc or pc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Patent CSV not found")
+    await db.delete(pc)
+    await db.commit()
+
+
+# ─────────────────────────────────────────────
 # Patent Presets
 # ─────────────────────────────────────────────
+
+def _preset_to_out(r: PatentPreset) -> dict:
+    return {
+        "id": r.id, "name": r.name,
+        "system_prompt": r.system_prompt, "output_format": r.output_format,
+        "strategy": r.strategy, "chunk_size": r.chunk_size,
+        "max_companies": r.max_companies, "max_total_patents": r.max_total_patents,
+        "patents_per_company": r.patents_per_company,
+        "csv_id": r.csv_id or "",
+        "selected_companies": _json.loads(r.selected_companies or "[]"),
+        "stats_processors": _json.loads(r.stats_config_json or "[]"),
+        "final_llm_prompt": r.final_llm_prompt or "",
+    }
+
 
 class PatentPresetIn(BaseModel):
     id: str
@@ -715,13 +805,13 @@ class PatentPresetIn(BaseModel):
     max_companies: int = 20
     max_total_patents: int = 100
     patents_per_company: int = 10
+    csv_id: str = ""
+    selected_companies: list[str] = []
+    stats_processors: list[dict] = []
+    final_llm_prompt: str = ""
 
 
-class PatentPresetOut(PatentPresetIn):
-    pass
-
-
-@router.get("/patent-presets", response_model=list[PatentPresetOut])
+@router.get("/patent-presets", response_model=list[dict])
 async def list_patent_presets(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_approved),
@@ -730,14 +820,10 @@ async def list_patent_presets(
         select(PatentPreset).where(PatentPreset.user_id == user.id).order_by(PatentPreset.sort_order, PatentPreset.created_at)
     )
     rows = result.scalars().all()
-    return [PatentPresetOut(
-        id=r.id, name=r.name, system_prompt=r.system_prompt, output_format=r.output_format,
-        strategy=r.strategy, chunk_size=r.chunk_size, max_companies=r.max_companies,
-        max_total_patents=r.max_total_patents, patents_per_company=r.patents_per_company,
-    ) for r in rows]
+    return [_preset_to_out(r) for r in rows]
 
 
-@router.post("/patent-presets", response_model=PatentPresetOut, status_code=201)
+@router.post("/patent-presets", response_model=dict, status_code=201)
 async def create_patent_preset(
     body: PatentPresetIn,
     db: AsyncSession = Depends(get_db),
@@ -753,18 +839,18 @@ async def create_patent_preset(
         strategy=body.strategy, chunk_size=body.chunk_size,
         max_companies=body.max_companies, max_total_patents=body.max_total_patents,
         patents_per_company=body.patents_per_company,
+        csv_id=body.csv_id or None,
+        selected_companies=_json.dumps(body.selected_companies, ensure_ascii=False),
+        stats_config_json=_json.dumps(body.stats_processors, ensure_ascii=False),
+        final_llm_prompt=body.final_llm_prompt,
         sort_order=(last.sort_order + 1) if last else 0,
     )
     db.add(pp)
     await db.commit()
-    return PatentPresetOut(
-        id=pp.id, name=pp.name, system_prompt=pp.system_prompt, output_format=pp.output_format,
-        strategy=pp.strategy, chunk_size=pp.chunk_size, max_companies=pp.max_companies,
-        max_total_patents=pp.max_total_patents, patents_per_company=pp.patents_per_company,
-    )
+    return _preset_to_out(pp)
 
 
-@router.put("/patent-presets/{preset_id}", response_model=PatentPresetOut)
+@router.put("/patent-presets/{preset_id}", response_model=dict)
 async def update_patent_preset(
     preset_id: str,
     body: PatentPresetIn,
@@ -782,12 +868,12 @@ async def update_patent_preset(
     pp.max_companies = body.max_companies
     pp.max_total_patents = body.max_total_patents
     pp.patents_per_company = body.patents_per_company
+    pp.csv_id = body.csv_id or None
+    pp.selected_companies = _json.dumps(body.selected_companies, ensure_ascii=False)
+    pp.stats_config_json = _json.dumps(body.stats_processors, ensure_ascii=False)
+    pp.final_llm_prompt = body.final_llm_prompt
     await db.commit()
-    return PatentPresetOut(
-        id=pp.id, name=pp.name, system_prompt=pp.system_prompt, output_format=pp.output_format,
-        strategy=pp.strategy, chunk_size=pp.chunk_size, max_companies=pp.max_companies,
-        max_total_patents=pp.max_total_patents, patents_per_company=pp.patents_per_company,
-    )
+    return _preset_to_out(pp)
 
 
 @router.delete("/patent-presets/{preset_id}", status_code=204)

@@ -64,16 +64,36 @@ class AgentInput(BaseModel):
 # -------------------------------------------------------------------
 # Session API
 # -------------------------------------------------------------------
+class StatProcessorConfig(BaseModel):
+    """統計プロセッサの1エントリ設定。"""
+    processor_id: str              # 例: "yearly_count", "company_count", "ipc_distribution"
+    enabled: bool = True
+    param_prompt: str = ""         # LLMにパラメータを生成させるプロンプト（空=LLMなし、機械的に全データ処理）
+    variable_name: str = ""        # 最終LLMプロンプト内の変数名 (空=processor_idを使用)
+    ipc_col: str = ""              # ipc_distributionプロセッサ用（空=自動検出）
+
+
 class PatentConfig(BaseModel):
-    """テーマに設定する特許分析設定。"""
+    """テーマに設定する特許分析設定。
+
+    preset_id を指定した場合、PatentPresetの設定を読み込む。
+    csv_id を指定した場合、サーバー保存済みCSVを使用する（未指定の場合はSessionStartRequest.patent_rowsを使用）。
+    """
     preset_id: str = ""           # PatentPresetのID（空=直接設定を使用）
+    csv_id: str = ""              # サーバー保存済みCSVのID（空=SessionStartRequest.patent_rowsを使用）
+    # 共通フィルター
+    selected_companies: List[str] = Field(default_factory=list)  # 空=全企業
+    max_companies: int = 20
+    max_total_patents: int = 100
+    patents_per_company: int = 10
+    # 統計処理設定（統計 → 最終LLM整理の直列フロー）
+    stats_processors: List[StatProcessorConfig] = Field(default_factory=list)
+    final_llm_prompt: str = ""    # 全統計結果をまとめるLLMプロンプト（空=LLMなし、生テーブルのみ）
+    # 既存LLM分析設定（後方互換）
     system_prompt: str = ""
     output_format: str = ""
     strategy: str = "bulk"
     chunk_size: int = 20
-    max_companies: int = 20
-    max_total_patents: int = 100
-    patents_per_company: int = 10
     pre_info_sources: List[str] = Field(default_factory=list)  # 事前情報に含めるソース ("summary:N", "messages:N", etc.)
 
 
@@ -103,7 +123,8 @@ class SessionStartRequest(BaseModel):
     pre_info: str = ""           # 事前情報 (ファイル内容等)
     project_flow: str = ""       # マクロフロータイプ (空=waterfall)
     flow_config: Optional[dict] = None  # フロー固有の設定
-    patent_rows: List[dict] = Field(default_factory=list)  # クライアントがアップロードしたCSVの行データ
+    patent_rows: List[dict] = Field(default_factory=list)  # クライアントがアップロードしたCSVの行データ（後方互換）
+    patent_csv_id: str = ""  # サーバー保存済みCSVのID（空=patent_rowsを使用）
 
 
 class SessionStartResponse(BaseModel):
@@ -244,9 +265,25 @@ class PatentChunkedAnalyzeResponse(BaseModel):
     intermediate_reports: List[str]  # 各チャンクの中間レポート（デバッグ用）
 
 
-class PatentPresetModel(BaseModel):
+class PatentCsvMeta(BaseModel):
+    """CSVメタデータ（行データなし）。"""
     id: str
     name: str
+    row_count: int
+    created_at: str = ""
+
+
+class PatentCsvUploadResponse(BaseModel):
+    id: str
+    name: str
+    row_count: int
+
+
+class PatentPresetModel(BaseModel):
+    """PatentResearch プリセット（Playground設定をまとめたもの）。"""
+    id: str
+    name: str
+    # 既存LLM分析設定
     system_prompt: str = ""
     output_format: str = ""
     strategy: str = "bulk"
@@ -254,6 +291,50 @@ class PatentPresetModel(BaseModel):
     max_companies: int = 20
     max_total_patents: int = 100
     patents_per_company: int = 10
+    # 統計処理設定
+    csv_id: str = ""
+    selected_companies: List[str] = Field(default_factory=list)
+    stats_processors: List[StatProcessorConfig] = Field(default_factory=list)
+    final_llm_prompt: str = ""
+
+
+# -------------------------------------------------------------------
+# 統計処理 API
+# -------------------------------------------------------------------
+class StatProcessorInfo(BaseModel):
+    """利用可能な統計プロセッサの情報。"""
+    id: str
+    title: str
+    description: str
+
+
+class PatentStatsRequest(BaseModel):
+    """統計処理リクエスト。"""
+    rows: List[dict]                         # CSVの行データ
+    processor_ids: List[str] = Field(default_factory=list)  # 空=全プロセッサ実行
+    display_mode: str = "table"              # "table" | "llm"
+    llm_prompt: str = ""                     # display_mode="llm" 時のプロンプト
+    ipc_col: str = ""                        # IPC列名（空=自動検出）
+    # 列名設定（空=AppSettingsのデフォルト値を使用）
+    company_col: str = ""
+    date_col: str = ""
+    content_col: str = ""
+
+
+class StatTableResult(BaseModel):
+    """単一統計プロセッサの結果（テーブル表示用）。"""
+    processor_id: str
+    title: str
+    markdown: str          # マークダウン表形式のテキスト
+    is_empty: bool = False
+
+
+class PatentStatsResponse(BaseModel):
+    """統計処理レスポンス。"""
+    display_mode: str                      # "table" | "llm"
+    tables: List[StatTableResult]          # display_mode="table" 時: 各統計テーブル
+    llm_result: str = ""                   # display_mode="llm" 時: LLMによる整理結果
+    combined_markdown: str = ""            # 全統計を連結したマークダウン（どちらのモードでも返す）
 
 
 class HealthResponse(BaseModel):

@@ -1,8 +1,10 @@
 import uuid
+import json as _json
 import logging
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, List
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import (
     SessionStartRequest,
@@ -15,6 +17,10 @@ from src.models import (
 )
 from src.session_manager import session_manager
 from src.agent_runner import agent_runner, create_llm, job_statuses
+from src.database import get_db
+from src.db_models import PatentCsv
+from src.auth import require_approved
+from src.db_models import User
 
 logger = logging.getLogger("bsapp.session")
 
@@ -31,8 +37,31 @@ class GenerateTitleResponse(BaseModel):
 
 
 @router.post("/start", response_model=SessionStartResponse)
-def start_session(req: SessionStartRequest):
+async def start_session(
+    req: SessionStartRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_approved),
+):
     session_id = session_manager.start_session(req)
+    session = session_manager.get_session(session_id)
+
+    # csv_idが指定されていれば事前にDBからCSV行データをロードしてセッションにキャッシュ
+    csv_ids_to_load: set[str] = set()
+    if req.patent_csv_id:
+        csv_ids_to_load.add(req.patent_csv_id)
+    for theme in req.themes:
+        if theme.patent_config and theme.patent_config.csv_id:
+            csv_ids_to_load.add(theme.patent_config.csv_id)
+
+    for csv_id in csv_ids_to_load:
+        pc = await db.get(PatentCsv, csv_id)
+        if pc and pc.user_id == user.id:
+            rows = _json.loads(pc.rows_json)
+            session.patent_csv_cache[csv_id] = rows
+            # デフォルトCSVとして patent_rows にもセット（後方互換）
+            if csv_id == req.patent_csv_id and not session.patent_rows:
+                session.patent_rows = rows
+
     return SessionStartResponse(session_id=session_id)
 
 

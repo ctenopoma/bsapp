@@ -38,16 +38,29 @@ export interface MessageHistory {
   patent_context?: string;
 }
 
+export interface StatProcessorConfig {
+  processor_id: string;
+  enabled: boolean;
+  param_prompt: string;    // 空=LLMなし（機械的に全データ処理）
+  variable_name: string;   // 最終LLMプロンプト変数名（空=processor_id使用）
+  ipc_col: string;
+}
+
 export interface PatentConfig {
-  preset_id?: string;        // PatentPresetのID（空=直接設定を使用）
-  system_prompt?: string;
-  output_format?: string;
-  strategy?: string;         // 'bulk' | 'bulk_per_patent' | 'bulk_per_company' | 'chunked'
-  chunk_size?: number;
+  preset_id?: string;
+  csv_id?: string;                          // サーバー保存済みCSVのID
+  selected_companies?: string[];            // 空=全企業
   max_companies?: number;
   max_total_patents?: number;
   patents_per_company?: number;
-  pre_info_sources?: string[]; // 事前情報ソース: "summary:N"=テーマN要約, "messages:N"=テーマN全発言
+  stats_processors?: StatProcessorConfig[];
+  final_llm_prompt?: string;               // 全統計結果をまとめるプロンプト（空=LLMなし）
+  // 既存LLM分析設定（後方互換）
+  system_prompt?: string;
+  output_format?: string;
+  strategy?: string;
+  chunk_size?: number;
+  pre_info_sources?: string[];
 }
 
 export interface ThemeConfig {
@@ -608,7 +621,8 @@ export interface SessionStartRequest {
   pre_info?: string;
   project_flow?: string;
   flow_config?: Record<string, any>;
-  patent_rows?: Record<string, string>[];
+  patent_rows?: Record<string, string>[];  // 後方互換
+  patent_csv_id?: string;                  // サーバー保存済みCSVのID
 }
 
 export interface SessionStartResponse {
@@ -756,10 +770,19 @@ export interface RagSearchResponse {
   error?: string;
 }
 
+// 特許CSV メタ情報
+export interface PatentCsvMeta {
+  id: string;
+  name: string;
+  row_count: number;
+  created_at: string;
+}
+
 // 特許調査プリセット
 export interface PatentPresetData {
   id: string;
   name: string;
+  // 既存LLM分析設定
   system_prompt: string;
   output_format: string;
   strategy: string;
@@ -767,6 +790,11 @@ export interface PatentPresetData {
   max_companies: number;
   max_total_patents: number;
   patents_per_company: number;
+  // 統計処理設定
+  csv_id: string;
+  selected_companies: string[];
+  stats_processors: StatProcessorConfig[];
+  final_llm_prompt: string;
 }
 
 // 特許調査 API
@@ -826,6 +854,38 @@ export interface PatentChunkedAnalyzeResponse {
   report: string;
   chunk_count: number;
   intermediate_reports: string[];
+}
+
+// 統計処理 API
+export interface StatProcessorInfo {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface PatentStatsRequest {
+  rows: Record<string, string>[];
+  processor_ids?: string[];      // 空=全プロセッサ実行
+  display_mode?: 'table' | 'llm';
+  llm_prompt?: string;           // display_mode="llm" 時のプロンプト
+  ipc_col?: string;
+  company_col?: string;
+  date_col?: string;
+  content_col?: string;
+}
+
+export interface StatTableResult {
+  processor_id: string;
+  title: string;
+  markdown: string;
+  is_empty: boolean;
+}
+
+export interface PatentStatsResponse {
+  display_mode: 'table' | 'llm';
+  tables: StatTableResult[];
+  llm_result: string;
+  combined_markdown: string;
 }
 
 // ヘルパーエージェント API (ペルソナ・タスク入力支援)

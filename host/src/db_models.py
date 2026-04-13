@@ -20,6 +20,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_known_ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
+    windows_username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     personas: Mapped[list["Persona"]] = relationship("Persona", back_populates="user", cascade="all, delete-orphan")
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="user", cascade="all, delete-orphan")
@@ -29,6 +30,7 @@ class User(Base):
     task_presets: Mapped[list["TaskPreset"]] = relationship("TaskPreset", back_populates="user", cascade="all, delete-orphan")
     patent_sessions: Mapped[list["PatentSession"]] = relationship("PatentSession", back_populates="user", cascade="all, delete-orphan")
     patent_presets: Mapped[list["PatentPreset"]] = relationship("PatentPreset", back_populates="user", cascade="all, delete-orphan")
+    patent_csvs: Mapped[list["PatentCsv"]] = relationship("PatentCsv", back_populates="user", cascade="all, delete-orphan")
 
 
 class Persona(Base):
@@ -178,13 +180,42 @@ class PatentSummary(Base):
     session: Mapped["PatentSession"] = relationship("PatentSession", back_populates="summary")
 
 
+class PatentCsv(Base):
+    """アップロードされた特許CSVデータ。行データをJSONで保存する。"""
+    __tablename__ = "patent_csvs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)   # 元ファイル名など
+    rows_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")  # JSON配列
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="patent_csvs")
+    presets: Mapped[list["PatentPreset"]] = relationship("PatentPreset", back_populates="csv", foreign_keys="PatentPreset.csv_id")
+
+
 class PatentPreset(Base):
-    """特許分析のプリセット設定（PatentResearchScreenで保存・Setupで利用）。"""
+    """特許分析のプリセット設定（PatentResearchScreenで保存・Setupで利用）。
+
+    stats_config_json: JSON形式の統計プロセッサ設定リスト
+      [
+        {
+          "processor_id": "yearly_count",
+          "enabled": true,
+          "param_prompt": "...",   // LLMにパラメータを生成させるプロンプト（空=LLMなし）
+          "variable_name": ""      // プロンプト変数名（空=processor_id使用）
+        }, ...
+      ]
+    final_llm_prompt: 全統計結果をまとめるLLMプロンプト（空=LLMなし、生テーブルのみ）
+    selected_companies: JSON配列の企業名フィルター（空配列=全企業）
+    """
     __tablename__ = "patent_presets"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 既存LLM分析設定（後方互換のため残す）
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     output_format: Mapped[str] = mapped_column(Text, nullable=False, default="")
     strategy: Mapped[str] = mapped_column(String(50), nullable=False, default="bulk")
@@ -192,7 +223,13 @@ class PatentPreset(Base):
     max_companies: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     max_total_patents: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     patents_per_company: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # 統計処理設定
+    csv_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patent_csvs.id", ondelete="SET NULL"), nullable=True, index=True)
+    selected_companies: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON配列
+    stats_config_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")    # JSON配列
+    final_llm_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="patent_presets")
+    csv: Mapped["PatentCsv | None"] = relationship("PatentCsv", back_populates="presets", foreign_keys=[csv_id])

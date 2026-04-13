@@ -4,6 +4,13 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+fn get_windows_username() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| String::new())
+}
+
 /// 社内ホスト (localhost 等) への通信がプロキシを経由しないよう NO_PROXY を設定する。
 /// reqwest (tauri_plugin_http の内部実装) はクライアント生成時に NO_PROXY を参照する。
 /// NO_PROXY / no_proxy の両方から既存エントリを収集してマージする。
@@ -46,7 +53,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, get_windows_username])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -148,9 +148,15 @@ async def _get_or_create_dev_user(
     db: AsyncSession,
     session_id: str,
     client_ip: Optional[str],
+    windows_username: Optional[str],
 ) -> User:
-    """DEV_AUTH_BYPASS 用: session_id でユーザーを検索し、なければ IP で検索してセッション再紐付けする。
-    どちらも見つからない場合は新規作成。
+    """DEV_AUTH_BYPASS 用: session_id を基本に、windows_username と IP で復元する。
+
+    優先順位:
+      1. session_id
+      2. windows_username
+      3. client_ip
+      4. 新規作成
     """
     email = f"dev_{session_id}@dev.local"
     short_id = session_id[:8]
@@ -161,6 +167,9 @@ async def _get_or_create_dev_user(
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if user is not None:
+        if windows_username and not user.windows_username:
+            user.windows_username = windows_username
+        user.display_name = display_name
         user.last_login_at = now
         if client_ip:
             user.last_known_ip = client_ip
@@ -168,7 +177,32 @@ async def _get_or_create_dev_user(
         await db.refresh(user)
         return user
 
-    # 2. セッションID未知 → IPで既存dev.localユーザーを検索（localStorage削除後の復元）
+    # 2. Windowsユーザー名で既存dev.localユーザーを検索
+    if windows_username:
+        result = await db.execute(
+            select(User)
+            .where(User.windows_username == windows_username)
+            .where(User.email.like("%@dev.local"))
+            .order_by(User.last_login_at.desc())
+            .limit(1)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            old_email = existing.email
+            existing.email = email
+            existing.display_name = display_name
+            existing.windows_username = windows_username
+            existing.last_login_at = now
+            if client_ip:
+                existing.last_known_ip = client_ip
+            await db.commit()
+            await db.refresh(existing)
+            logger.info(
+                f"Dev user re-associated by Windows username {windows_username}: {old_email} → {email}"
+            )
+            return existing
+
+    # 3. セッションID未知 → IPで既存dev.localユーザーを検索（localStorage削除後の復元）
     if client_ip:
         result = await db.execute(
             select(User)
@@ -182,6 +216,8 @@ async def _get_or_create_dev_user(
             old_email = existing.email
             existing.email = email
             existing.display_name = display_name
+            if windows_username:
+                existing.windows_username = windows_username
             existing.last_login_at = now
             existing.last_known_ip = client_ip
             await db.commit()
@@ -191,9 +227,7 @@ async def _get_or_create_dev_user(
             )
             return existing
 
-    # 3. 完全新規
-    count_result = await db.execute(select(func.count()).select_from(User))
-    is_first = count_result.scalar_one() == 0
+    # 4. 完全新規
     user = User(
         id=str(uuid.uuid4()),
         email=email,
@@ -204,12 +238,24 @@ async def _get_or_create_dev_user(
         created_at=now,
         last_login_at=now,
         last_known_ip=client_ip,
+        windows_username=windows_username or None,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    logger.info(f"Dev user {email} created (IP: {client_ip}, first={is_first})")
+    logger.info(
+        f"Dev user {email} created (windows_username={windows_username or '-'}, IP: {client_ip})"
+    )
     return user
+
+
+def _get_client_ip(request: Request) -> Optional[str]:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        forwarded_ip = forwarded_for.split(",")[0].strip()
+        if forwarded_ip:
+            return forwarded_ip
+    return request.client.host if request.client else None
 
 
 async def cleanup_stale_dev_users(db: AsyncSession) -> int:
@@ -251,11 +297,17 @@ async def get_current_user(
     different browsers/machines get different user records.
     Otherwise validates the Azure AD Bearer JWT.
     """
-    client_ip: Optional[str] = request.client.host if request.client else None
+    client_ip = _get_client_ip(request)
 
     if DEV_AUTH_BYPASS:
         session_id = request.headers.get("x-dev-session-id", "default")
-        user = await _get_or_create_dev_user(db, session_id=session_id, client_ip=client_ip)
+        windows_username = request.headers.get("x-windows-username", "").strip() or None
+        user = await _get_or_create_dev_user(
+            db,
+            session_id=session_id,
+            client_ip=client_ip,
+            windows_username=windows_username,
+        )
         return user
 
     if credentials is None:

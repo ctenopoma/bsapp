@@ -337,6 +337,28 @@ export async function getPatentSummary(sessionId: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────
+// Patent CSVs
+// ─────────────────────────────────────────────
+
+import type { PatentCsvMeta } from '../types/api';
+export type { PatentCsvMeta };
+
+export async function uploadPatentCsv(id: string, name: string, rows: Record<string, string>[]): Promise<PatentCsvMeta> {
+  return _req<PatentCsvMeta>('/api/data/patent-csvs', { method: 'POST', body: JSON.stringify({ id, name, rows }) });
+}
+
+export async function listPatentCsvs(): Promise<PatentCsvMeta[]> {
+  return _req<PatentCsvMeta[]>('/api/data/patent-csvs');
+}
+
+export async function getPatentCsvRows(csvId: string): Promise<{ id: string; name: string; rows: Record<string, string>[] }> {
+  return _req(`/api/data/patent-csvs/${csvId}/rows`);
+}
+
+export async function deletePatentCsv(csvId: string): Promise<void> {
+  await _req(`/api/data/patent-csvs/${csvId}`, { method: 'DELETE' });
+}
+
 // Patent Presets
 // ─────────────────────────────────────────────
 
@@ -346,12 +368,12 @@ export async function getPatentPresets(): Promise<PatentPresetData[]> {
   return _req<PatentPresetData[]>('/api/data/patent-presets');
 }
 
-export async function createPatentPreset(preset: PatentPresetData): Promise<void> {
-  await _req('/api/data/patent-presets', { method: 'POST', body: JSON.stringify(preset) });
+export async function createPatentPreset(preset: PatentPresetData): Promise<PatentPresetData> {
+  return _req<PatentPresetData>('/api/data/patent-presets', { method: 'POST', body: JSON.stringify(preset) });
 }
 
-export async function updatePatentPreset(preset: PatentPresetData): Promise<void> {
-  await _req(`/api/data/patent-presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
+export async function updatePatentPreset(preset: PatentPresetData): Promise<PatentPresetData> {
+  return _req<PatentPresetData>(`/api/data/patent-presets/${preset.id}`, { method: 'PUT', body: JSON.stringify(preset) });
 }
 
 export async function deletePatentPreset(id: string): Promise<void> {

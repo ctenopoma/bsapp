@@ -7,6 +7,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { AccountInfo, InteractionRequiredAuthError } from '@azure/msal-browser';
 import { DEV_AUTH_BYPASS, msalInstance, loginRequest } from './msalConfig';
+import { buildRequestHeaders, initAuth } from '../lib/api';
 
 export interface AppUser {
   id: string;
@@ -41,8 +42,7 @@ export function useAuth() {
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 async function fetchMe(token: string | undefined): Promise<AppUser | null> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = buildRequestHeaders(token);
   try {
     const res = await fetch(`${BASE_URL}/api/auth/me`, { headers });
     if (!res.ok) return null;
@@ -53,8 +53,7 @@ async function fetchMe(token: string | undefined): Promise<AppUser | null> {
 }
 
 async function callLogin(token: string | undefined): Promise<AppUser | null> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = buildRequestHeaders(token);
   try {
     const res = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers });
     if (!res.ok) return null;
@@ -72,25 +71,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Dev bypass mode ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!DEV_AUTH_BYPASS) return;
-    callLogin(undefined).then(u => {
-      if (!u) {
-        console.error(
-          '[DEV_AUTH_BYPASS] /api/auth/login failed. ' +
-          'Make sure the backend is running with DEV_AUTH_BYPASS=true ' +
-          '(host/.env または host/.env.example を確認してください).'
-        );
-      }
-      setUser(u);
-      setReady(true);
-    });
+    initAuth()
+      .catch(() => {})
+      .then(() => callLogin(undefined))
+      .then(u => {
+        if (!u) {
+          console.error(
+            '[DEV_AUTH_BYPASS] /api/auth/login failed. ' +
+            'Make sure the backend is running with DEV_AUTH_BYPASS=true ' +
+            '(host/.env または host/.env.example を確認してください).'
+          );
+        }
+        setUser(u);
+        setReady(true);
+      });
   }, []);
 
   // ── MSAL mode ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (DEV_AUTH_BYPASS || !msalInstance) return;
-    msalInstance.initialize().then(async () => {
-      await msalInstance.handleRedirectPromise();
-      const accounts = msalInstance.getAllAccounts();
+    const instance = msalInstance;
+    instance.initialize().then(async () => {
+      await instance.handleRedirectPromise();
+      const accounts = instance.getAllAccounts();
       if (accounts.length > 0) {
         await _acquireAndLogin(accounts[0]);
       }

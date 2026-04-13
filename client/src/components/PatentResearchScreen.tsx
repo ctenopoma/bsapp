@@ -3,12 +3,12 @@ import { generateUUID } from '../lib/uuid';
 import {
   FlaskConical, Upload, CheckSquare, Square, Play, Copy, Trash2,
   ChevronDown, ChevronUp, FileText, BookOpen, AlertTriangle, Minimize2,
-  Save, FolderOpen, Check,
+  Save, FolderOpen, Check, BarChart2,
 } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { apiGetSettings, apiPatentAnalyze, apiPatentCompress, apiPatentAnalyzeChunked } from '../lib/api';
+import { apiGetSettings, apiPatentAnalyze, apiPatentCompress, apiPatentAnalyzeChunked, apiPatentStats, apiPatentStatsProcessors } from '../lib/api';
 import {
   createPatentSession,
   getPatentSessions,
@@ -23,8 +23,13 @@ import {
   createPatentPreset,
   updatePatentPreset,
   deletePatentPreset,
+  uploadPatentCsv,
+  listPatentCsvs,
+  getPatentCsvRows,
+  deletePatentCsv,
+  PatentCsvMeta,
 } from '../lib/server-db';
-import { AppSettings, FieldSuggestion, PatentCompressMode, PatentItem, PatentPresetData } from '../types/api';
+import { AppSettings, FieldSuggestion, PatentCompressMode, PatentItem, PatentPresetData, StatProcessorInfo, StatProcessorConfig, StatTableResult } from '../types/api';
 
 // 分析戦略の型
 type AnalysisStrategy = 'bulk' | 'bulk_per_patent' | 'bulk_per_company' | 'chunked';
@@ -126,28 +131,43 @@ export default function PatentResearchScreen() {
   const [tab, setTab] = useState<'new' | 'history'>('new');
   const [settings, setSettings] = useState<AppSettings | null>(null);
 
-  // 分析設定
-  const [analyzeSystemPrompt, setAnalyzeSystemPrompt] = useState('');
-  const [analyzeOutputFormat, setAnalyzeOutputFormat] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // CSV・企業
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvName, setCsvName] = useState('');
+  const [savedCsvId, setSavedCsvId] = useState('');
+  const [savedCsvs, setSavedCsvs] = useState<PatentCsvMeta[]>([]);
+  const [companies, setCompanies] = useState<CompanyCount[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [csvError, setCsvError] = useState('');
+  const [csvSaving, setCsvSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 上限設定（クライアント側）
+  // 上限設定
   const [maxCompanies, setMaxCompanies] = useState(DEFAULT_MAX_COMPANIES);
   const [maxTotalPatents, setMaxTotalPatents] = useState(DEFAULT_MAX_TOTAL_PATENTS);
   const [patentsPerCompany, setPatentsPerCompany] = useState(10);
 
-  // 分析戦略
+  // 分析設定（既存LLM分析）
+  const [analyzeSystemPrompt, setAnalyzeSystemPrompt] = useState('');
+  const [analyzeOutputFormat, setAnalyzeOutputFormat] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [strategy, setStrategy] = useState<AnalysisStrategy>('bulk');
   const [chunkSize, setChunkSize] = useState(20);
 
-  // CSV・企業
-  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
-  const [companies, setCompanies] = useState<CompanyCount[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [csvError, setCsvError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 統計処理設定
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [availableProcessors, setAvailableProcessors] = useState<StatProcessorInfo[]>([]);
+  // processorId → config
+  const [processorConfigs, setProcessorConfigs] = useState<Record<string, StatProcessorConfig>>({});
+  const [finalLlmPrompt, setFinalLlmPrompt] = useState('');
 
-  // 分析状態
+  // 統計実行状態
+  const [statsStatus, setStatsStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [statsTables, setStatsTables] = useState<StatTableResult[]>([]);
+  const [statsLlmResult, setStatsLlmResult] = useState('');
+  const [statsError, setStatsError] = useState('');
+
+  // 分析状態（既存LLM分析）
   const [status, setStatus] = useState<'idle' | 'compressing' | 'analyzing' | 'done' | 'error'>('idle');
   const [report, setReport] = useState('');
   const [globalError, setGlobalError] = useState('');
@@ -182,6 +202,16 @@ export default function PatentResearchScreen() {
     getSessionConfig('patent_chunk_size').then(v => { if (v) setChunkSize(parseInt(v) || 20); });
     loadSessions();
     getPatentPresets().then(setPresets).catch(console.error);
+    listPatentCsvs().then(setSavedCsvs).catch(console.error);
+    apiPatentStatsProcessors().then(procs => {
+      setAvailableProcessors(procs);
+      // デフォルト: 全プロセッサを有効・LLMなしで初期化
+      const defaultConfigs: Record<string, StatProcessorConfig> = {};
+      for (const p of procs) {
+        defaultConfigs[p.id] = { processor_id: p.id, enabled: true, param_prompt: '', variable_name: '', ipc_col: '' };
+      }
+      setProcessorConfigs(defaultConfigs);
+    }).catch(console.error);
   }, []);
 
   const loadSessions = async () => {
@@ -214,6 +244,7 @@ export default function PatentResearchScreen() {
     setCompanies([]);
     setSelected(new Set());
     setCsvRows([]);
+    setSavedCsvId('');
     try {
       const text = await readFileAsText(file);
       const rows = parseCSV(text);
@@ -235,10 +266,54 @@ export default function PatentResearchScreen() {
         .sort((a, b) => b.count - a.count);
 
       setCsvRows(rows);
+      setCsvName(file.name);
       setCompanies(sorted);
+
+      // サーバーに自動保存
+      setCsvSaving(true);
+      try {
+        const meta = await uploadPatentCsv(generateUUID(), file.name, rows);
+        setSavedCsvId(meta.id);
+        setSavedCsvs(prev => [meta, ...prev]);
+      } catch (err) {
+        console.error('CSV保存失敗:', err);
+      } finally {
+        setCsvSaving(false);
+      }
     } catch (err: any) {
       setCsvError(err.message ?? 'CSVの読み込みに失敗しました');
     }
+  };
+
+  // サーバー保存済みCSVを読み込む
+  const handleLoadSavedCsv = async (csvMeta: PatentCsvMeta) => {
+    setCsvError('');
+    try {
+      const { rows } = await getPatentCsvRows(csvMeta.id);
+      const companyCol = settings?.patent_company_column ?? '出願人';
+      const counts: Record<string, number> = {};
+      for (const row of rows) {
+        const co = (row[companyCol] ?? '').trim();
+        if (co) counts[co] = (counts[co] ?? 0) + 1;
+      }
+      const sorted = Object.entries(counts)
+        .map(([company, count]) => ({ company, count }))
+        .sort((a, b) => b.count - a.count);
+      setCsvRows(rows);
+      setCsvName(csvMeta.name);
+      setSavedCsvId(csvMeta.id);
+      setCompanies(sorted);
+      setSelected(new Set());
+    } catch (err: any) {
+      setCsvError(err.message ?? 'CSV読み込みに失敗しました');
+    }
+  };
+
+  const handleDeleteSavedCsv = async (csvId: string) => {
+    if (!confirm('このCSVを削除しますか？')) return;
+    await deletePatentCsv(csvId);
+    setSavedCsvs(prev => prev.filter(c => c.id !== csvId));
+    if (savedCsvId === csvId) { setSavedCsvId(''); setCsvRows([]); setCompanies([]); setSelected(new Set()); }
   };
 
   const toggleCompany = (company: string) => {
@@ -416,6 +491,22 @@ export default function PatentResearchScreen() {
   // -------------------------------------------------------------------
   // プリセット管理
   // -------------------------------------------------------------------
+  const _buildPresetData = (id: string, name: string): PatentPresetData => ({
+    id,
+    name,
+    system_prompt: analyzeSystemPrompt,
+    output_format: analyzeOutputFormat,
+    strategy,
+    chunk_size: chunkSize,
+    max_companies: maxCompanies,
+    max_total_patents: maxTotalPatents,
+    patents_per_company: patentsPerCompany,
+    csv_id: savedCsvId,
+    selected_companies: Array.from(selected),
+    stats_processors: Object.values(processorConfigs),
+    final_llm_prompt: finalLlmPrompt,
+  });
+
   const loadPreset = (presetId: string) => {
     setSelectedPresetId(presetId);
     if (!presetId) return;
@@ -428,40 +519,44 @@ export default function PatentResearchScreen() {
     setMaxCompanies(preset.max_companies);
     setMaxTotalPatents(preset.max_total_patents);
     setPatentsPerCompany(preset.patents_per_company);
+    setFinalLlmPrompt(preset.final_llm_prompt || '');
+    // 統計プロセッサ設定を復元
+    if (preset.stats_processors?.length) {
+      const restored: Record<string, StatProcessorConfig> = {};
+      for (const sp of preset.stats_processors) {
+        restored[sp.processor_id] = sp;
+      }
+      // 新しいプロセッサがあればデフォルト追加
+      for (const p of availableProcessors) {
+        if (!restored[p.id]) {
+          restored[p.id] = { processor_id: p.id, enabled: false, param_prompt: '', variable_name: '', ipc_col: '' };
+        }
+      }
+      setProcessorConfigs(restored);
+    }
+    // CSV復元
+    if (preset.csv_id && preset.csv_id !== savedCsvId) {
+      const csvMeta = savedCsvs.find(c => c.id === preset.csv_id);
+      if (csvMeta) handleLoadSavedCsv(csvMeta);
+    }
+    // 企業選択を復元
+    if (preset.selected_companies?.length) {
+      setSelected(new Set(preset.selected_companies));
+    }
   };
 
   const handleSavePreset = async () => {
     if (!presetName.trim()) return;
     const existing = presets.find(p => p.id === selectedPresetId);
     if (existing) {
-      const updated: PatentPresetData = {
-        ...existing,
-        name: presetName,
-        system_prompt: analyzeSystemPrompt,
-        output_format: analyzeOutputFormat,
-        strategy,
-        chunk_size: chunkSize,
-        max_companies: maxCompanies,
-        max_total_patents: maxTotalPatents,
-        patents_per_company: patentsPerCompany,
-      };
-      await updatePatentPreset(updated);
-      setPresets(prev => prev.map(p => p.id === updated.id ? updated : p));
+      const updated = _buildPresetData(existing.id, presetName);
+      const saved = await updatePatentPreset(updated);
+      setPresets(prev => prev.map(p => p.id === saved.id ? saved : p));
     } else {
-      const newPreset: PatentPresetData = {
-        id: generateUUID(),
-        name: presetName,
-        system_prompt: analyzeSystemPrompt,
-        output_format: analyzeOutputFormat,
-        strategy,
-        chunk_size: chunkSize,
-        max_companies: maxCompanies,
-        max_total_patents: maxTotalPatents,
-        patents_per_company: patentsPerCompany,
-      };
-      await createPatentPreset(newPreset);
-      setPresets(prev => [...prev, newPreset]);
-      setSelectedPresetId(newPreset.id);
+      const newPreset = _buildPresetData(generateUUID(), presetName);
+      const saved = await createPatentPreset(newPreset);
+      setPresets(prev => [...prev, saved]);
+      setSelectedPresetId(saved.id);
     }
     setPresetName('');
     setShowSavePresetDialog(false);
@@ -536,6 +631,50 @@ export default function PatentResearchScreen() {
   };
 
   // -------------------------------------------------------------------
+  // 統計処理実行
+  // -------------------------------------------------------------------
+  const handleRunStats = async () => {
+    if (csvRows.length === 0) return;
+    const enabledIds = Object.values(processorConfigs).filter(c => c.enabled).map(c => c.processor_id);
+    if (enabledIds.length === 0) return;
+
+    setStatsStatus('running');
+    setStatsTables([]);
+    setStatsLlmResult('');
+    setStatsError('');
+
+    const displayMode = finalLlmPrompt ? 'llm' : 'table';
+    const filteredRows = selected.size > 0
+      ? csvRows.filter(r => selected.has((r[settings?.patent_company_column ?? '出願人'] ?? '').trim()))
+      : csvRows;
+
+    try {
+      const res = await apiPatentStats({
+        rows: filteredRows,
+        processor_ids: enabledIds,
+        display_mode: displayMode,
+        llm_prompt: finalLlmPrompt,
+        company_col: settings?.patent_company_column,
+        date_col: settings?.patent_date_column,
+        content_col: settings?.patent_content_column,
+      });
+      setStatsTables(res.tables);
+      setStatsLlmResult(res.llm_result);
+      setStatsStatus('done');
+    } catch (err: any) {
+      setStatsError(err.message ?? '統計処理でエラーが発生しました');
+      setStatsStatus('error');
+    }
+  };
+
+  const updateProcessorConfig = (id: string, patch: Partial<StatProcessorConfig>) => {
+    setProcessorConfigs(prev => ({
+      ...prev,
+      [id]: { ...prev[id], ...patch },
+    }));
+  };
+
+  // -------------------------------------------------------------------
   // 描画ヘルパー
   // -------------------------------------------------------------------
   const orderedSelected = companies.filter(c => selected.has(c.company));
@@ -597,13 +736,272 @@ export default function PatentResearchScreen() {
       {tab === 'new' && (
         <div className="flex flex-col gap-5">
 
-          {/* 分析設定 */}
+          {/* プリセット管理 */}
+          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <FolderOpen size={15} className="text-gray-500" />
+              <h2 className="text-sm font-semibold text-gray-700">プリセット</h2>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedPresetId}
+                onChange={e => loadPreset(e.target.value)}
+                className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">— プリセットを選択 —</option>
+                {presets.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setPresetName(presets.find(p => p.id === selectedPresetId)?.name ?? '');
+                  setShowSavePresetDialog(v => !v);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+              >
+                <Save size={13} />
+                {selectedPresetId ? '更新/別名保存' : '名前を付けて保存'}
+              </button>
+              {selectedPresetId && (
+                <button
+                  type="button"
+                  onClick={() => handleDeletePreset(selectedPresetId)}
+                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 transition-colors"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+            {showSavePresetDialog && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="プリセット名"
+                  value={presetName}
+                  onChange={e => setPresetName(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500"
+                  onKeyDown={e => { if (e.key === 'Enter') handleSavePreset(); if (e.key === 'Escape') setShowSavePresetDialog(false); }}
+                  autoFocus
+                />
+                <button type="button" onClick={handleSavePreset}
+                  className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                  保存
+                </button>
+                <button type="button" onClick={() => setShowSavePresetDialog(false)}
+                  className="px-3 py-1 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                  キャンセル
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* 統計処理設定 */}
+          <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <button
+              onClick={() => setStatsOpen(v => !v)}
+              className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <BarChart2 size={15} className="text-indigo-500" />
+                統計処理設定
+              </span>
+              {statsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {statsOpen && (
+              <div className="px-5 pb-5 flex flex-col gap-4 border-t border-gray-100 pt-4">
+                <p className="text-xs text-gray-400">
+                  統計処理を選択し、各処理ごとにLLMがパラメータ（企業・期間等）を生成するプロンプトを設定できます。
+                  プロンプトが空の場合は全データを機械的に処理します。
+                  最終LLMプロンプトに変数（例: <code className="bg-gray-100 px-1 rounded">&#123;&#123;yearly_count&#125;&#125;</code>）を入れるとその統計結果が差し込まれます。
+                </p>
+
+                {/* 統計プロセッサ一覧 */}
+                <div className="flex flex-col gap-3">
+                  {availableProcessors.map(proc => {
+                    const cfg = processorConfigs[proc.id];
+                    if (!cfg) return null;
+                    return (
+                      <div key={proc.id} className={`border rounded-lg overflow-hidden transition-colors ${
+                        cfg.enabled ? 'border-indigo-300' : 'border-gray-200'
+                      }`}>
+                        {/* ヘッダー行 */}
+                        <div className={`flex items-center gap-2 px-3 py-2 ${cfg.enabled ? 'bg-indigo-50' : 'bg-gray-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={cfg.enabled}
+                            onChange={e => updateProcessorConfig(proc.id, { enabled: e.target.checked })}
+                            className="shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-gray-700">{proc.title}</span>
+                            <span className="ml-2 text-xs text-gray-400">{proc.description}</span>
+                          </div>
+                          <code className="text-xs text-indigo-500 bg-white border border-indigo-200 px-1.5 py-0.5 rounded shrink-0">
+                            &#123;&#123;{cfg.variable_name || proc.id}&#125;&#125;
+                          </code>
+                        </div>
+
+                        {/* 詳細設定（有効時のみ） */}
+                        {cfg.enabled && (
+                          <div className="px-3 py-3 flex flex-col gap-3 border-t border-indigo-100 bg-white">
+                            {/* LLMパラメータ生成プロンプト */}
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                                パラメータ生成プロンプト
+                                <span className="ml-1 font-normal text-gray-400">（空=全データを機械処理、入力時=LLMがフィルター条件を生成）</span>
+                              </label>
+                              <textarea
+                                className={TEXTAREA_CLS}
+                                rows={3}
+                                value={cfg.param_prompt}
+                                onChange={e => updateProcessorConfig(proc.id, { param_prompt: e.target.value })}
+                                placeholder="例: 前の議論で言及された企業を対象に分析してください。対象企業をJSONで出力: {&quot;companies&quot;: [...], &quot;year_from&quot;: 2020}"
+                              />
+                            </div>
+                            {/* 変数名・IPC列 */}
+                            <div className="flex gap-3">
+                              <div className="flex-1">
+                                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                                  変数名
+                                  <span className="ml-1 font-normal text-gray-400">（空の場合は processor_id を使用）</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  className={INPUT_CLS}
+                                  value={cfg.variable_name}
+                                  onChange={e => updateProcessorConfig(proc.id, { variable_name: e.target.value })}
+                                  placeholder={proc.id}
+                                />
+                              </div>
+                              {proc.id === 'ipc_distribution' && (
+                                <div className="flex-1">
+                                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                                    IPC列名
+                                    <span className="ml-1 font-normal text-gray-400">（空=自動検出）</span>
+                                  </label>
+                                  <input
+                                    type="text"
+                                    className={INPUT_CLS}
+                                    value={cfg.ipc_col}
+                                    onChange={e => updateProcessorConfig(proc.id, { ipc_col: e.target.value })}
+                                    placeholder="IPC分類"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 最終LLMプロンプト */}
+                <div className="border-t border-gray-100 pt-3">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    最終LLMプロンプト
+                    <span className="ml-2 font-normal text-gray-400">
+                      変数例: <code className="bg-gray-100 px-1 rounded">&#123;&#123;company_count&#125;&#125;</code>、<code className="bg-gray-100 px-1 rounded">&#123;&#123;yearly_count&#125;&#125;</code>、<code className="bg-gray-100 px-1 rounded">&#123;&#123;stats_all&#125;&#125;</code>（全統計）
+                    </span>
+                    <span className="ml-2 font-normal text-gray-400">（空=統計テーブルをそのまま表示）</span>
+                  </label>
+                  <textarea
+                    className={TEXTAREA_CLS}
+                    rows={4}
+                    value={finalLlmPrompt}
+                    onChange={e => setFinalLlmPrompt(e.target.value)}
+                    placeholder={`以下の特許統計データを分析し、技術動向と競争状況をまとめてください。\n\n{{stats_all}}`}
+                  />
+                </div>
+
+                {/* 実行ボタン */}
+                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                  <span className="text-xs text-gray-400">
+                    {csvRows.length > 0
+                      ? `${csvRows.length.toLocaleString()}件のデータ${selected.size > 0 ? `（${selected.size}社選択中）` : ''}`
+                      : 'CSVをアップロードすると統計処理を実行できます'}
+                  </span>
+                  <button
+                    onClick={handleRunStats}
+                    disabled={csvRows.length === 0 || Object.values(processorConfigs).every(c => !c.enabled) || statsStatus === 'running'}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    <BarChart2 size={13} />
+                    {statsStatus === 'running' ? '処理中...' : '統計実行'}
+                  </button>
+                </div>
+
+                {/* 統計結果 */}
+                {statsStatus !== 'idle' && (
+                  <div className="border-t border-gray-100 pt-3 flex flex-col gap-3">
+                    <h3 className="text-xs font-semibold text-gray-600">統計結果</h3>
+
+                    {statsStatus === 'running' && (
+                      <div className="flex items-center gap-2 text-sm text-indigo-600 animate-pulse">
+                        <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" />
+                        統計処理中...
+                      </div>
+                    )}
+
+                    {statsStatus === 'error' && (
+                      <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-3 text-sm">
+                        {statsError}
+                      </div>
+                    )}
+
+                    {statsStatus === 'done' && (
+                      <div className="flex flex-col gap-4">
+                        {statsLlmResult ? (
+                          <>
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <div className="prose prose-sm max-w-none text-gray-700">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{statsLlmResult}</ReactMarkdown>
+                              </div>
+                            </div>
+                            <details className="text-xs">
+                              <summary className="cursor-pointer text-gray-400 hover:text-gray-600">統計テーブルを表示</summary>
+                              <div className="mt-2 flex flex-col gap-3">
+                                {statsTables.filter(t => !t.is_empty).map(t => (
+                                  <div key={t.processor_id} className="bg-gray-50 rounded-lg p-3 overflow-x-auto">
+                                    <div className="prose prose-sm max-w-none text-gray-700">
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.markdown}</ReactMarkdown>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          </>
+                        ) : (
+                          <>
+                            {statsTables.filter(t => !t.is_empty).map(t => (
+                              <div key={t.processor_id} className="bg-gray-50 rounded-lg p-3 overflow-x-auto">
+                                <div className="prose prose-sm max-w-none text-gray-700">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.markdown}</ReactMarkdown>
+                                </div>
+                              </div>
+                            ))}
+                            {statsTables.every(t => t.is_empty) && (
+                              <p className="text-xs text-gray-400">統計データが取得できませんでした。CSV列名の設定を確認してください。</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* LLM分析設定 */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <button
               onClick={() => setSettingsOpen(v => !v)}
               className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              <span>分析設定</span>
+              <span>LLM分析設定</span>
               {settingsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
             {settingsOpen && (
@@ -613,67 +1011,6 @@ export default function PatentResearchScreen() {
                   内容列=<code className="bg-gray-100 px-1 rounded">{settings?.patent_content_column ?? '...'}</code>、
                   日付列=<code className="bg-gray-100 px-1 rounded">{settings?.patent_date_column ?? '...'}</code>
                 </p>
-
-                {/* プリセット管理 */}
-                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FolderOpen size={13} className="text-gray-500" />
-                    <span className="text-xs font-semibold text-gray-600">プリセット</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <select
-                      value={selectedPresetId}
-                      onChange={e => loadPreset(e.target.value)}
-                      className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-                    >
-                      <option value="">— プリセットを選択 —</option>
-                      {presets.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPresetName(presets.find(p => p.id === selectedPresetId)?.name ?? '');
-                        setShowSavePresetDialog(v => !v);
-                      }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
-                    >
-                      <Save size={13} />
-                      {selectedPresetId ? '更新/別名保存' : '名前を付けて保存'}
-                    </button>
-                    {selectedPresetId && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePreset(selectedPresetId)}
-                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200 transition-colors"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-                  {showSavePresetDialog && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="プリセット名"
-                        value={presetName}
-                        onChange={e => setPresetName(e.target.value)}
-                        className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500"
-                        onKeyDown={e => { if (e.key === 'Enter') handleSavePreset(); if (e.key === 'Escape') setShowSavePresetDialog(false); }}
-                        autoFocus
-                      />
-                      <button type="button" onClick={handleSavePreset}
-                        className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
-                        保存
-                      </button>
-                      <button type="button" onClick={() => setShowSavePresetDialog(false)}
-                        className="px-3 py-1 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                        キャンセル
-                      </button>
-                    </div>
-                  )}
-                </div>
 
                 {/* プロンプト設定 */}
                 <div>
@@ -761,9 +1098,11 @@ export default function PatentResearchScreen() {
           {/* CSV 選択 */}
           <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col gap-3">
             <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <Upload size={15} /> CSVファイル選択
+              <Upload size={15} /> CSVファイル
             </h2>
-            <div className="flex items-center gap-3">
+
+            {/* アップロード */}
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isRunning}
@@ -772,11 +1111,49 @@ export default function PatentResearchScreen() {
                 ファイルを選択
               </button>
               {csvRows.length > 0 && (
-                <span className="text-sm text-gray-500">{csvRows.length.toLocaleString()} 件読み込み済み</span>
+                <span className="text-sm text-gray-600">
+                  <span className="font-medium">{csvName}</span>
+                  <span className="text-gray-400 ml-1">({csvRows.length.toLocaleString()} 件)</span>
+                  {csvSaving && <span className="ml-2 text-xs text-blue-500">保存中...</span>}
+                  {savedCsvId && !csvSaving && <span className="ml-2 text-xs text-green-500">サーバー保存済み</span>}
+                </span>
               )}
             </div>
             <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
             {csvError && <p className="text-xs text-red-500">{csvError}</p>}
+
+            {/* 保存済みCSV一覧 */}
+            {savedCsvs.length > 0 && (
+              <div className="border-t border-gray-100 pt-3">
+                <p className="text-xs font-semibold text-gray-600 mb-2">サーバー保存済みCSV</p>
+                <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                  {savedCsvs.map(csv => (
+                    <div
+                      key={csv.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-colors ${
+                        savedCsvId === csv.id
+                          ? 'border-blue-300 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <button
+                        className="flex-1 text-left text-gray-700 truncate"
+                        onClick={() => handleLoadSavedCsv(csv)}
+                      >
+                        <span className="font-medium truncate">{csv.name}</span>
+                        <span className="ml-2 text-xs text-gray-400">{csv.row_count.toLocaleString()}件</span>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSavedCsv(csv.id)}
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           {/* 企業選択 */}

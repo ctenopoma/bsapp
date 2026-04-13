@@ -56,8 +56,27 @@ async def init_db() -> None:
         await conn.execute(_sa.text(
             "CREATE INDEX IF NOT EXISTS ix_users_last_known_ip ON users (last_known_ip)"
         ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS windows_username VARCHAR(255)"
+        ))
+        await conn.execute(_sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_users_windows_username ON users (windows_username)"
+        ))
         # Migrate: add patent_presets table (new columns added via create_all above)
         # Migrate: add patent_context to messages (for patent analysis results in discussions)
         await conn.execute(_sa.text(
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS patent_context TEXT"
+        ))
+        # Migrate: patent_csvs table and new patent_preset columns
+        await conn.execute(_sa.text(
+            "ALTER TABLE patent_presets ADD COLUMN IF NOT EXISTS csv_id VARCHAR(36) REFERENCES patent_csvs(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE patent_presets ADD COLUMN IF NOT EXISTS selected_companies TEXT DEFAULT '[]'"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE patent_presets ADD COLUMN IF NOT EXISTS stats_config_json TEXT DEFAULT '[]'"
+        ))
+        await conn.execute(_sa.text(
+            "ALTER TABLE patent_presets ADD COLUMN IF NOT EXISTS final_llm_prompt TEXT DEFAULT ''"
         ))
