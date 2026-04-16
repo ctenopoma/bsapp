@@ -1,13 +1,9 @@
 /**
- * AuthContext – provides current user info and auth token to the whole app.
- *
- * In DEV_AUTH_BYPASS mode the token is undefined; the server identifies the
- * user via its own DEV_AUTH_BYPASS mechanism.
+ * AuthContext – Windowsユーザー名を唯一の識別子として使用する。
+ * Azure AD / MSAL は使用しない。
  */
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { AccountInfo, InteractionRequiredAuthError } from '@azure/msal-browser';
-import { DEV_AUTH_BYPASS, msalInstance, loginRequest } from './msalConfig';
-import { buildRequestHeaders, initAuth } from '../lib/api';
+import { initAuth } from '../lib/api';
 
 export interface AppUser {
   id: string;
@@ -18,20 +14,14 @@ export interface AppUser {
 }
 
 interface AuthState {
-  ready: boolean;           // MSAL initialised
-  user: AppUser | null;     // null = not logged in
-  token: string | undefined;
-  login: () => Promise<void>;
-  logout: () => void;
+  ready: boolean;
+  user: AppUser | null;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState>({
   ready: false,
   user: null,
-  token: undefined,
-  login: async () => {},
-  logout: () => {},
   refreshUser: async () => {},
 });
 
@@ -41,10 +31,11 @@ export function useAuth() {
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-async function fetchMe(token: string | undefined): Promise<AppUser | null> {
-  const headers = buildRequestHeaders(token);
+async function callLogin(): Promise<AppUser | null> {
+  const { buildRequestHeaders } = await import('../lib/api');
+  const headers = buildRequestHeaders();
   try {
-    const res = await fetch(`${BASE_URL}/api/auth/me`, { headers });
+    const res = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers });
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -52,10 +43,11 @@ async function fetchMe(token: string | undefined): Promise<AppUser | null> {
   }
 }
 
-async function callLogin(token: string | undefined): Promise<AppUser | null> {
-  const headers = buildRequestHeaders(token);
+async function fetchMe(): Promise<AppUser | null> {
+  const { buildRequestHeaders } = await import('../lib/api');
+  const headers = buildRequestHeaders();
   try {
-    const res = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers });
+    const res = await fetch(`${BASE_URL}/api/auth/me`, { headers });
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -66,20 +58,16 @@ async function callLogin(token: string | undefined): Promise<AppUser | null> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AppUser | null>(null);
-  const [token, setToken] = useState<string | undefined>(undefined);
 
-  // ── Dev bypass mode ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!DEV_AUTH_BYPASS) return;
     initAuth()
       .catch(() => {})
-      .then(() => callLogin(undefined))
+      .then(() => callLogin())
       .then(u => {
         if (!u) {
           console.error(
-            '[DEV_AUTH_BYPASS] /api/auth/login failed. ' +
-            'Make sure the backend is running with DEV_AUTH_BYPASS=true ' +
-            '(host/.env または host/.env.example を確認してください).'
+            '[Auth] /api/auth/login failed. ' +
+            'バックエンドが DEV_AUTH_BYPASS=true で起動しているか確認してください。'
           );
         }
         setUser(u);
@@ -87,58 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  // ── MSAL mode ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (DEV_AUTH_BYPASS || !msalInstance) return;
-    const instance = msalInstance;
-    instance.initialize().then(async () => {
-      await instance.handleRedirectPromise();
-      const accounts = instance.getAllAccounts();
-      if (accounts.length > 0) {
-        await _acquireAndLogin(accounts[0]);
-      }
-      setReady(true);
-    });
-  }, []);
-
-  async function _acquireAndLogin(account: AccountInfo) {
-    if (!msalInstance) return;
-    try {
-      const result = await msalInstance.acquireTokenSilent({ ...loginRequest, account });
-      setToken(result.accessToken);
-      const u = await callLogin(result.accessToken);
-      setUser(u);
-    } catch (e) {
-      if (e instanceof InteractionRequiredAuthError) {
-        // token expired – force re-login
-        setToken(undefined);
-        setUser(null);
-      }
-    }
-  }
-
-  const login = useCallback(async () => {
-    if (DEV_AUTH_BYPASS || !msalInstance) return;
-    const result = await msalInstance.loginPopup(loginRequest);
-    setToken(result.accessToken);
-    const u = await callLogin(result.accessToken);
-    setUser(u);
-  }, []);
-
-  const logout = useCallback(() => {
-    if (DEV_AUTH_BYPASS || !msalInstance) return;
-    msalInstance.logoutPopup();
-    setUser(null);
-    setToken(undefined);
-  }, []);
-
   const refreshUser = useCallback(async () => {
-    const u = await fetchMe(token);
+    const u = await fetchMe();
     setUser(u);
-  }, [token]);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ ready, user, token, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ ready, user, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -40,51 +40,16 @@ export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // Viteのビルド時定数: vite build (リリース) では false に置換されコードごと削除される
 const IS_DEV = import.meta.env.DEV;
-const DEV_AUTH_BYPASS = import.meta.env.VITE_DEV_AUTH_BYPASS === 'true';
 
-// Auth token store – set by AuthContext after login
-let _authToken: string | undefined;
-export function setAuthToken(token: string | undefined) {
-  _authToken = token;
-}
-
-// Dev session ID: persists in localStorage so the same browser always maps to the same dev user
-// Note: uses a polyfill fallback for HTTP (non-secure) contexts where crypto.randomUUID() is unavailable
-function _generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    try { return crypto.randomUUID(); } catch (_) {}
-  }
-  // Fallback for HTTP non-secure context (LAN access via http://192.168.x.x/...)
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
-}
-
-function getDevSessionId(): string {
-  const KEY = 'dev_session_id';
-  let id = localStorage.getItem(KEY);
-  if (!id) {
-    id = _generateUUID();
-    localStorage.setItem(KEY, id);
-  }
-  return id;
-}
-
-// Windows username: used as stable user identifier in DEV_AUTH_BYPASS mode.
-// Tauri: auto-detected via Rust command. Browser: prompted once and stored in localStorage.
+// Windows username: used as the sole user identifier.
+// Tauri: auto-detected via Rust %USERNAME%. Browser: prompted once and stored in localStorage.
 const _WIN_USER_KEY = 'bsapp_winuser';
-
-function _shouldInitWindowsUsername(): boolean {
-  return DEV_AUTH_BYPASS;
-}
 
 export function getWindowsUsername(): string {
   return localStorage.getItem(_WIN_USER_KEY) ?? '';
 }
 
 export async function initAuth(): Promise<void> {
-  if (!_shouldInitWindowsUsername()) return;
   if (localStorage.getItem(_WIN_USER_KEY)) return;
   // Tauri environment: auto-detect via Rust %USERNAME%
   if ((window as any).__TAURI__) {
@@ -102,10 +67,8 @@ export async function initAuth(): Promise<void> {
   if (name) localStorage.setItem(_WIN_USER_KEY, name);
 }
 
-export function buildRequestHeaders(token?: string): Record<string, string> {
+export function buildRequestHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  headers['X-Dev-Session-Id'] = getDevSessionId();
 
   const winUser = getWindowsUsername();
   if (winUser) headers['X-Windows-Username'] = winUser;
@@ -134,7 +97,7 @@ export async function request<T>(path: string, options?: any): Promise<T> {
     }
   }
 
-  const headers = buildRequestHeaders(_authToken);
+  const headers = buildRequestHeaders();
 
   const startMs = Date.now();
   try {

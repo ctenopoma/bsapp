@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
-import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, ShieldCheck, LogOut, BookOpen } from "lucide-react";
+import { MessageSquare, Users, Database, PlayCircle, History, MessageCircle, Trash2, SlidersHorizontal, FlaskConical, ShieldCheck, BookOpen } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { setAuthToken } from "./lib/api";
 import { getSessions, SessionData } from "./lib/server-db";
 
 import LoginScreen from './components/LoginScreen';
@@ -18,15 +17,10 @@ import ManualScreen from './components/ManualScreen';
 
 // ─── Inner app (needs auth context) ─────────────────────────────────────────
 function AppShell() {
-  const { ready, user, token, logout } = useAuth();
+  const { ready, user } = useAuth();
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Sync auth token to api.ts fetch helper
-  useEffect(() => {
-    setAuthToken(token);
-  }, [token]);
 
   // Load session history from server whenever location changes
   useEffect(() => {
@@ -140,13 +134,6 @@ function AppShell() {
               <div className="text-xs font-medium text-gray-700 truncate">{user.display_name || user.email}</div>
               <div className="text-xs text-gray-400 truncate">{user.email}</div>
             </div>
-            <button
-              onClick={logout}
-              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors shrink-0"
-              title="ログアウト"
-            >
-              <LogOut size={15} />
-            </button>
           </div>
         </div>
       </nav>

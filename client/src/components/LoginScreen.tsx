@@ -1,28 +1,12 @@
-import { useState } from 'react';
-import { MessageSquare, LogIn, Clock } from 'lucide-react';
+import { MessageSquare, Clock } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { DEV_AUTH_BYPASS } from '../auth/msalConfig';
 
 interface Props {
   pending?: boolean; // user exists but not yet approved
 }
 
 export default function LoginScreen({ pending = false }: Props) {
-  const { login, refreshUser } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleLogin = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await login();
-    } catch (e: any) {
-      setError(e.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { refreshUser } = useAuth();
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
@@ -50,29 +34,11 @@ export default function LoginScreen({ pending = false }: Props) {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <p className="text-sm text-gray-600">
-              {DEV_AUTH_BYPASS
-                ? '開発モード: 認証はバイパスされています'
-                : 'Microsoftアカウントでサインインしてください'}
-            </p>
-            {DEV_AUTH_BYPASS && (
-              <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-                バックエンドへの接続に失敗しました。<br />
-                サーバーが起動しているか、<code>host/.env</code> に{' '}
-                <code>DEV_AUTH_BYPASS=true</code> が設定されているか確認してください。
-              </div>
-            )}
-            {error && (
-              <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>
-            )}
-            <button
-              onClick={handleLogin}
-              disabled={loading || DEV_AUTH_BYPASS}
-              className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <LogIn size={18} />
-              {loading ? 'サインイン中...' : 'Microsoftでサインイン'}
-            </button>
+            <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+              バックエンドへの接続に失敗しました。<br />
+              サーバーが起動しているか、<code>host/.env</code> に{' '}
+              <code>DEV_AUTH_BYPASS=true</code> が設定されているか確認してください。
+            </div>
           </div>
         )}
       </div>
